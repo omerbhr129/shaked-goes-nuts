@@ -11,7 +11,7 @@ export function BoardTab({ view, meId }: { view: ClientView; meId: string }) {
     <section className="stack">
       <h2 className="board-title">טבלת המסחר</h2>
       <div className="board-podium felt">
-        <Podium list={list.slice(0, 3)} size="s" />
+        <Podium list={list.slice(0, 3)} size="m" />
       </div>
       <p className="board-rules">👑 המלך בוחר מי מתמודד באתגר הבא. 🍋 השקד המר שותה כשהגלגל מחליט.</p>
       <ol className="board-list">

@@ -1475,3 +1475,221 @@ html.is-tv body {
   padding: 3px 10px;
   font-size: 19px;
 }
+
+/* ---------- letterbox: a projector or laptop that is not 16:9 shows felt, not black bars ---------- */
+
+.tv-viewport {
+  background-color: #020c08;
+  background-image: radial-gradient(120% 120% at 50% 50%, #0b3b2b 0%, #04170f 58%, #020c08 100%), var(--noise);
+}
+
+/* ---------- quiz ---------- */
+
+.tvquiz {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  grid-template-rows: auto auto auto 1fr auto;
+  gap: 16px;
+  padding: 26px 64px 22px;
+}
+
+.quiz-grid {
+  min-height: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-content: center;
+  gap: 24px 30px;
+  padding: 6px 40px 0;
+}
+
+.tvquiz.many .quiz-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 18px 22px;
+}
+
+.qopt {
+  position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 16px 22px;
+  min-height: 132px;
+  padding: 18px 28px;
+  border-radius: 26px;
+  background: linear-gradient(180deg, rgba(17, 82, 60, 0.96), rgba(9, 48, 35, 0.96));
+  box-shadow:
+    inset 0 0 0 2px var(--line),
+    0 18px 40px rgba(0, 0, 0, 0.4);
+  transition:
+    opacity 0.6s ease,
+    transform 0.6s ease,
+    filter 0.6s ease,
+    box-shadow 0.6s ease,
+    background 0.6s ease;
+}
+
+.qopt-letter {
+  flex: none;
+  width: 86px;
+  height: 86px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-family: var(--display);
+  font-weight: 900;
+  font-size: 50px;
+  color: var(--ink);
+  background: radial-gradient(circle at 35% 30%, var(--gold-hi), var(--gold) 60%, var(--gold-lo));
+  box-shadow:
+    inset 0 -5px 0 rgba(0, 0, 0, 0.25),
+    0 6px 14px rgba(0, 0, 0, 0.35);
+}
+
+.qopt-label {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--display);
+  font-weight: 800;
+  font-size: 52px;
+  line-height: 1.1;
+}
+
+.tvquiz.many .qopt-label {
+  font-size: 40px;
+}
+
+.qopt-count {
+  font-family: var(--led);
+  font-weight: 900;
+  font-size: 60px;
+  line-height: 1;
+  color: var(--gold-hi);
+}
+
+.qopt-who {
+  flex-basis: 100%;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.qopt.right {
+  transform: scale(1.03);
+  background: linear-gradient(180deg, rgba(24, 128, 84, 0.98), rgba(10, 72, 47, 0.98));
+  box-shadow:
+    inset 0 0 0 5px var(--up),
+    0 0 90px rgba(92, 242, 155, 0.42),
+    0 18px 40px rgba(0, 0, 0, 0.4);
+}
+
+.qopt.right .qopt-letter {
+  background: radial-gradient(circle at 35% 30%, #c9ffe0, var(--up) 60%, #1f9e5a);
+}
+
+.qopt.wrong {
+  opacity: 0.36;
+  filter: saturate(0.3);
+  transform: scale(0.97);
+}
+
+/* the shot moment: whoever got it wrong, big, with a glass */
+
+.shot {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  justify-items: center;
+  align-items: center;
+  padding: 26px 60px 44px;
+  background:
+    radial-gradient(70% 60% at 50% 45%, rgba(233, 185, 73, 0.18), transparent 70%),
+    radial-gradient(110% 90% at 50% 40%, rgba(142, 27, 34, 0.96), rgba(38, 4, 8, 0.98));
+}
+
+.shot-title {
+  font-family: var(--display);
+  font-weight: 900;
+  font-size: 150px;
+  line-height: 1;
+  color: var(--gold-hi);
+  text-shadow:
+    0 8px 0 rgba(0, 0, 0, 0.45),
+    0 0 60px rgba(233, 185, 73, 0.5);
+}
+
+.shot-faces {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: flex-end;
+  gap: 30px 50px;
+}
+
+.shot-person {
+  position: relative;
+  display: grid;
+  justify-items: center;
+  gap: 14px;
+}
+
+.shot-person .funny-face {
+  box-shadow:
+    0 0 0 8px var(--gold),
+    0 30px 60px rgba(0, 0, 0, 0.55);
+  animation: shot-wobble 1.8s ease-in-out infinite;
+}
+
+.shot-person b {
+  font-family: var(--display);
+  font-weight: 800;
+  font-size: 48px;
+}
+
+.shot-glass {
+  position: absolute;
+  bottom: 60px;
+  inset-inline-start: -18px;
+  font-size: 104px;
+  line-height: 1;
+  filter: drop-shadow(0 8px 10px rgba(0, 0, 0, 0.5));
+  animation: shot-clink 1.2s ease-in-out infinite;
+}
+
+.shot-text {
+  max-width: 1500px;
+  font-size: 52px;
+  font-weight: 800;
+  line-height: 1.25;
+  text-align: center;
+  text-wrap: balance;
+}
+
+@keyframes shot-wobble {
+  0%,
+  100% {
+    transform: rotate(-3deg);
+  }
+  50% {
+    transform: rotate(3deg);
+  }
+}
+
+@keyframes shot-clink {
+  0%,
+  100% {
+    transform: rotate(-16deg) translateY(0);
+  }
+  50% {
+    transform: rotate(-34deg) translateY(-16px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .shot-person .funny-face,
+  .shot-glass {
+    animation: none;
+  }
+}

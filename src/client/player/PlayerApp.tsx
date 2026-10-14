@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { ClientView, PlayerPub } from "../../shared/types";
-import { cls, fmt, kingAndLast, resizeImage } from "../lib";
+import { cls, fmt, kingAndLast, resizeImage, useMedia } from "../lib";
 import { creds, useGame, type Game } from "../net";
 import { sfx } from "../sound";
 import { Avatar, Coin, ConnBanner, Led, Marquee, MuteButton, Sheet, ask, toast } from "../ui";
@@ -15,6 +15,8 @@ type Tab = "bet" | "missions" | "board";
 export function PlayerApp() {
   const { game, view, status } = useGame("player");
   const [tab, setTab] = useState<Tab>("bet");
+  // on a laptop / big screen everything sits side by side instead of behind tabs
+  const wide = useMedia("(min-width: 1080px)");
 
   // The host released this name (or reset the game): forget the stale token.
   useEffect(() => {
@@ -47,20 +49,37 @@ export function PlayerApp() {
   const { king } = kingAndLast(view.pub.players);
 
   return (
-    <div className="phone">
+    <div className={cls("phone", wide && "wide")}>
       <ConnBanner status={status} />
       <TopBar me={me} view={view} game={game} isKing={king === me.id} />
       {view.me.available < 100 && <BailoutBanner view={view} game={game} />}
-      <main className="phone-main">
-        {tab === "bet" && <BetTab game={game} view={view} me={me} />}
-        {tab === "missions" && <MissionsTab game={game} view={view} />}
-        {tab === "board" && <BoardTab view={view} meId={me.id} />}
-      </main>
-      <nav className="tabbar" aria-label="מסכים">
-        <TabButton on={tab === "bet"} onClick={() => setTab("bet")} icon="📈" label="בורסה" dot={needsBet} />
-        <TabButton on={tab === "missions"} onClick={() => setTab("missions")} icon="🤫" label="משימות" count={openMissions} />
-        <TabButton on={tab === "board"} onClick={() => setTab("board")} icon="🏆" label="דירוג" />
-      </nav>
+      {wide ? (
+        <main className="desk">
+          <section className="desk-col" aria-label="הבורסה">
+            <h2 className="desk-title">📈 הבורסה</h2>
+            <BetTab game={game} view={view} me={me} />
+          </section>
+          <section className="desk-col" aria-label="משימות">
+            <MissionsTab game={game} view={view} />
+          </section>
+          <section className="desk-col" aria-label="דירוג">
+            <BoardTab view={view} meId={me.id} />
+          </section>
+        </main>
+      ) : (
+        <>
+          <main className="phone-main">
+            {tab === "bet" && <BetTab game={game} view={view} me={me} />}
+            {tab === "missions" && <MissionsTab game={game} view={view} />}
+            {tab === "board" && <BoardTab view={view} meId={me.id} />}
+          </main>
+          <nav className="tabbar" aria-label="מסכים">
+            <TabButton on={tab === "bet"} onClick={() => setTab("bet")} icon="📈" label="הבורסה" dot={needsBet} />
+            <TabButton on={tab === "missions"} onClick={() => setTab("missions")} icon="🤫" label="משימות" count={openMissions} />
+            <TabButton on={tab === "board"} onClick={() => setTab("board")} icon="🏆" label="דירוג" />
+          </nav>
+        </>
+      )}
       <ResultOverlay view={view} meId={me.id} />
       <MissionWatcher view={view} />
       <FeedWatcher view={view} meId={me.id} />

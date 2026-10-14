@@ -4,6 +4,8 @@ import { activeRound, available, bettingOpen } from "./logic";
 function roundPub(s: GameState, r: RoundRec, now: number): RoundPub {
   const bets = s.bets.filter((b) => b.roundId === r.id).sort((a, b) => a.at - b.at);
   const open = bettingOpen(r, now);
+  // a quiz keeps the crowd's answers hidden until time is up, so nobody just copies the majority
+  const hideSplit = r.kind === "quiz" && open;
   let staked = 0;
   const stats = r.options.map((o) => {
     let count = 0;
@@ -14,7 +16,7 @@ function roundPub(s: GameState, r: RoundRec, now: number): RoundPub {
         total += b.amount;
       }
     staked += total;
-    return { optionId: o.id, count, total };
+    return hideSplit ? { optionId: o.id, count: 0, total: 0 } : { optionId: o.id, count, total };
   });
   return {
     id: r.id,
@@ -27,6 +29,7 @@ function roundPub(s: GameState, r: RoundRec, now: number): RoundPub {
     minBet: r.minBet,
     maxBet: r.maxBet,
     bonus: r.bonus,
+    reward: r.reward,
     noBet: r.noBet,
     status: r.status,
     openedAt: r.openedAt,
@@ -34,14 +37,16 @@ function roundPub(s: GameState, r: RoundRec, now: number): RoundPub {
     winnerId: r.winnerId,
     resolvedAt: r.resolvedAt,
     refunded: r.refunded,
-    number: s.rounds.filter((x) => x.kind === r.kind).indexOf(r) + 1,
+    losers: r.status === "resolved" ? r.losers : [],
+    loserReason: r.status === "resolved" ? r.loserReason : null,
+    number: s.rounds.filter((x) => x.kind !== "night").indexOf(r) + 1,
     stats,
     staked,
     bettors: bets.map((b) => b.playerId),
     bets: open ? null : bets.map((b) => ({ playerId: b.playerId, optionId: b.optionId, amount: b.amount })),
     results:
       r.status === "resolved"
-        ? s.ledger.filter((e) => e.kind === "bet" && e.ref === r.id).map((e) => ({ playerId: e.playerId, delta: e.delta }))
+        ? s.ledger.filter((e) => (e.kind === "bet" || e.kind === "quiz") && e.ref === r.id).map((e) => ({ playerId: e.playerId, delta: e.delta }))
         : null,
   };
 }
@@ -61,6 +66,8 @@ function playerStats(s: GameState): PlayerStats[] {
       falseAccusations: 0,
       timesCaught: 0,
       bailouts: 0,
+      quizRight: 0,
+      shots: 0,
     };
     for (const e of s.ledger) {
       if (e.playerId !== p.id) continue;
@@ -74,6 +81,7 @@ function playerStats(s: GameState): PlayerStats[] {
           st.worstLoss = Math.min(st.worstLoss, e.delta);
         }
       } else if (e.kind === "bailout") st.bailouts++;
+      else if (e.kind === "quiz") st.quizRight++;
     }
     for (const m of s.missions) {
       if (m.assignedTo !== p.id) continue;
@@ -82,6 +90,7 @@ function playerStats(s: GameState): PlayerStats[] {
         st.missionAlmonds += m.reward;
       } else if (m.status === "burned") st.timesCaught++;
     }
+    for (const r of s.rounds) if (r.losers.includes(p.id)) st.shots++;
     for (const a of s.accusations) {
       if (a.by !== p.id) continue;
       if (a.status === "right") st.catches++;
@@ -121,7 +130,7 @@ export function buildPublic(s: GameState, now: number, online: Set<ID>): PublicV
   });
 
   const featured = activeRound(s);
-  const challenges = s.rounds.filter((r) => r.kind === "challenge");
+  const challenges = s.rounds.filter((r) => r.kind !== "night");
   return {
     v: s.v,
     now,

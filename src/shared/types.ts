@@ -3,9 +3,10 @@ export type ID = string;
 export type Audience = "all" | "friends" | "groom";
 export type MissionStatus = "open" | "pending" | "done" | "burned";
 export type RoundStatus = "draft" | "open" | "closed" | "resolved";
-export type RoundKind = "challenge" | "night";
+export type RoundKind = "challenge" | "night" | "quiz";
 export type TvMode = "lobby" | "round" | "board" | "night" | "missions" | "awards" | "winner";
-export type FeedKind = "mission" | "caught" | "miss" | "bailout" | "wheel" | "result";
+export type FeedKind = "mission" | "caught" | "miss" | "bailout" | "wheel" | "result" | "shot";
+export type TargetSlot = "G" | "X" | "Y";
 export type WheelKind = "drink" | "punish";
 
 export interface Settings {
@@ -46,7 +47,12 @@ export interface RoundRec {
   minBet: number;
   maxBet: number;
   seconds: number;
+  /** bets: the bank's bonus on top of the pot. quiz: extra for the fastest right answer */
   bonus: number;
+  /** quiz only: almonds for every right answer */
+  reward: number;
+  /** quiz only: the right answer if known in advance (the host can still pick at reveal) */
+  correctId: ID | null;
   noBet: ID[];
   status: RoundStatus;
   openedAt: number | null;
@@ -55,6 +61,9 @@ export interface RoundRec {
   resolvedAt: number | null;
   /** resolved with nobody right: every stake went back */
   refunded: boolean;
+  /** quiz only: who drinks — wrong answers, or the slowest if everyone was right */
+  losers: ID[];
+  loserReason: "wrong" | "slow" | null;
 }
 
 export interface Bet {
@@ -68,7 +77,11 @@ export interface Bet {
 
 export interface Mission {
   id: ID;
+  /** as written, with {G} = the groom, {X} / {Y} = other players picked when dealt */
+  template: string;
+  /** the template with names filled in for whoever holds it */
   text: string;
+  targets: Partial<Record<TargetSlot, ID>>;
   reward: number;
   audience: Audience;
   assignedTo: ID | null;
@@ -78,7 +91,7 @@ export interface Mission {
   caughtBy: ID | null;
 }
 
-export type LedgerKind = "bet" | "mission" | "adjust" | "catch" | "penalty" | "bailout";
+export type LedgerKind = "bet" | "mission" | "adjust" | "catch" | "penalty" | "bailout" | "quiz";
 
 export interface LedgerEntry {
   id: ID;
@@ -189,6 +202,7 @@ export interface RoundPub {
   minBet: number;
   maxBet: number;
   bonus: number;
+  reward: number;
   noBet: ID[];
   status: RoundStatus;
   openedAt: number | null;
@@ -196,6 +210,8 @@ export interface RoundPub {
   winnerId: ID | null;
   resolvedAt: number | null;
   refunded: boolean;
+  losers: ID[];
+  loserReason: "wrong" | "slow" | null;
   number: number;
   stats: OptionStat[];
   /** sum of all stakes (the bank bonus comes on top) */
@@ -225,6 +241,8 @@ export interface PlayerStats {
   falseAccusations: number;
   timesCaught: number;
   bailouts: number;
+  quizRight: number;
+  shots: number;
 }
 
 export interface PublicView {

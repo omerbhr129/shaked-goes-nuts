@@ -783,3 +783,172 @@
 .inbox-who > .avatar-wrap {
   flex: none;
 }
+
+/* ---------- quizzes and mission templates ---------- */
+
+.section-head {
+  flex-wrap: wrap;
+}
+
+.right-pick {
+  flex: none;
+  width: 36px;
+  height: 36px;
+  border: 0;
+  border-radius: 50%;
+  font: inherit;
+  font-weight: 800;
+  color: var(--almond);
+  background: rgba(243, 227, 195, 0.08);
+  box-shadow: inset 0 0 0 1.5px var(--line);
+  cursor: pointer;
+}
+
+.right-pick.on {
+  color: var(--ink);
+  background: var(--up);
+  box-shadow: none;
+}
+
+.opt-edit.right input {
+  box-shadow: inset 0 0 0 2px var(--up);
+}
+
+.quiz-outcome {
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(0, 0, 0, 0.25);
+}
+
+.quiz-outcome p {
+  margin: 0;
+}
+
+.slot-help {
+  display: grid;
+  gap: 8px;
+}
+
+.slot-example {
+  margin: 0;
+  padding: 8px 12px;
+  border-radius: 10px;
+  color: var(--gold-hi);
+  background: rgba(233, 185, 73, 0.1);
+}
+
+/* ---------- live TV preview ---------- */
+
+.tv-preview {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+}
+
+.tv-preview-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.tv-preview-frame {
+  position: relative;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  border-radius: 12px;
+  background: #020c08;
+  box-shadow:
+    inset 0 0 0 1px var(--line),
+    0 10px 30px rgba(0, 0, 0, 0.4);
+}
+
+.tv-preview-frame iframe {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: 0;
+}
+
+/* ---------- laptop / desktop ---------- */
+
+.rounds-tab,
+.tv-tab,
+.mp-grid,
+.missions-top {
+  display: grid;
+  gap: 14px;
+}
+
+.rounds-col {
+  min-width: 0;
+  align-content: start;
+}
+
+.admin.wide {
+  max-width: 1480px;
+}
+
+.admin.wide .admin-tabs {
+  grid-template-columns: repeat(4, minmax(0, 210px));
+}
+
+.admin.wide .admin-main {
+  padding: 20px 24px;
+}
+
+.admin.wide .rounds-tab {
+  grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr);
+  align-items: start;
+  gap: 28px;
+}
+
+.admin.wide .missions-top {
+  grid-template-columns: 1fr 1fr;
+  align-items: start;
+}
+
+.admin.wide .mp-grid {
+  grid-template-columns: repeat(auto-fill, minmax(440px, 1fr));
+  align-items: start;
+}
+
+.admin.wide .pool {
+  grid-template-columns: 1fr 1fr;
+}
+
+.admin.wide .tv-tab {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr);
+  align-items: start;
+  gap: 28px;
+}
+
+.admin.wide .tv-tab-ctl {
+  min-width: 0;
+}
+
+.admin.wide .tv-tab-preview {
+  position: sticky;
+  top: 150px;
+}
+
+.admin.wide .tv-modes {
+  grid-template-columns: 1fr 1fr;
+}
+
+.right-chip {
+  padding: 2px 9px;
+  border-radius: 999px;
+  font-size: 0.82rem;
+  font-weight: 800;
+  white-space: nowrap;
+  color: var(--up);
+  background: rgba(92, 242, 155, 0.13);
+}
+
+.section-head .btn {
+  white-space: nowrap;
+}

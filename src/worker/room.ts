@@ -1,7 +1,7 @@
 import { DurableObject } from "cloudflare:workers";
 import type { GameState, ID } from "../shared/types";
 import type { Env } from "./env";
-import { GameError, activeRound, dispatch, newId, normalize } from "./logic";
+import { GameError, activeRound, closeQuiz, dispatch, newId, normalize } from "./logic";
 import { seedState } from "./seed";
 import { buildPublic, viewFor } from "./views";
 
@@ -258,7 +258,8 @@ export class GameRoom extends DurableObject<Env> {
       await this.ctx.storage.setAlarm(r.closesAt);
       return;
     }
-    r.status = "closed";
+    if (r.kind === "quiz") closeQuiz(this.s, r, Date.now());
+    else r.status = "closed";
     this.s.v++;
     await this.save();
     this.broadcast();

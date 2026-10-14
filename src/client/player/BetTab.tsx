@@ -1,7 +1,7 @@
 import { AnimatePresence, motion } from "motion/react";
 import { type ReactNode, useEffect, useState } from "react";
 import type { ClientView, PlayerPub, RoundPub } from "../../shared/types";
-import { cls, fmt, fmtX, mmss, multiplier, potOf, projectedPayout, ranked } from "../lib";
+import { LETTERS, cls, fmt, fmtX, mmss, multiplier, potOf, projectedPayout, ranked } from "../lib";
 import { type Game, useServerNow } from "../net";
 import { sfx } from "../sound";
 import { Avatar, Change, Coin, Money, Spark, toast } from "../ui";
@@ -14,7 +14,8 @@ export function BetTab({ game, view, me }: { game: Game; view: ClientView; me: P
 
   let featured: ReactNode = null;
   if (round) {
-    if (open) featured = <BetForm key={round.id} game={game} view={view} me={me} round={round} now={now} />;
+    if (round.kind === "quiz") featured = <QuizCard key={round.id} game={game} view={view} me={me} round={round} now={now} open={open} />;
+    else if (open) featured = <BetForm key={round.id} game={game} view={view} me={me} round={round} now={now} />;
     else if (round.status === "resolved") featured = <Resolved view={view} me={me} round={round} />;
     else featured = <Locked view={view} me={me} round={round} />;
   }
@@ -91,7 +92,7 @@ function Countdown({ round, now }: { round: RoundPub; now: number }) {
   return (
     <div className={cls("countdown", urgent && "urgent")} role="timer">
       <div className="countdown-row">
-        <span>ההימורים נסגרים בעוד</span>
+        <span>{round.kind === "quiz" ? "הזמן לענות נגמר בעוד" : "ההימורים נסגרים בעוד"}</span>
         <span className="num countdown-time">{mmss(left)}</span>
       </div>
       <div className="countdown-bar">
@@ -347,6 +348,94 @@ function Resolved({ view, me, round }: { view: ClientView; me: PlayerPub; round:
       <MyResult round={round} meId={me.id} bet={view.me!.bets[round.id]} />
       <p className="muted center">הסיבוב הבא יופיע כאן כשייפתח.</p>
     </QuestionCard>
+  );
+}
+
+/* ---------- quiz ---------- */
+
+function QuizCard({ game, view, me, round, now, open }: { game: Game; view: ClientView; me: PlayerPub; round: RoundPub; now: number; open: boolean }) {
+  const mine = view.me!.bets[round.id];
+  const [busy, setBusy] = useState(false);
+  const players = view.pub.players;
+  const resolved = round.status === "resolved";
+  const excluded = round.noBet.includes(me.id);
+  const mineRight = resolved && mine?.optionId === round.winnerId;
+  const drinking = resolved && round.losers.includes(me.id);
+  const gain = round.results?.find((x) => x.playerId === me.id)?.delta ?? 0;
+
+  const answer = async (optionId: string) => {
+    if (!open || busy) return;
+    setBusy(true);
+    try {
+      await game.act("bet", { roundId: round.id, optionId, amount: 0 });
+      sfx.chip();
+      navigator.vibrate?.(20);
+    } catch (e) {
+      toast((e as Error).message, "err");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="qcard quiz felt">
+      <div className="qcard-top">
+        <span className="quiz-tag">❓ שאלת ידע</span>
+        <span className="pot-chip">
+          תשובה נכונה <Money n={round.reward} size={15} />
+        </span>
+        <span className="qcard-emoji" aria-hidden="true">
+          {round.emoji}
+        </span>
+      </div>
+      <h2 className="qcard-title">{round.title}</h2>
+      {round.note && <p className="qcard-note">{round.note}</p>}
+      {open && round.closesAt && <Countdown round={round} now={now} />}
+      {excluded ? (
+        <div className="notice">על השאלה הזאת עונים בקול מול כולם 😉</div>
+      ) : (
+        <div className={cls("quiz-opts", round.options.length > 4 && "many")} role="radiogroup" aria-label="התשובה שלך">
+          {round.options.map((o, i) => {
+            const chosen = mine?.optionId === o.id;
+            const right = resolved && round.winnerId === o.id;
+            const p = o.playerId ? players.find((x) => x.id === o.playerId) : undefined;
+            return (
+              <button
+                key={o.id}
+                type="button"
+                role="radio"
+                aria-checked={chosen}
+                disabled={!open || busy}
+                className={cls("quiz-opt", chosen && "on", right && "right", resolved && chosen && !right && "wrong")}
+                onClick={() => answer(o.id)}
+              >
+                <span className="quiz-letter">{LETTERS[i]}</span>
+                {p && <Avatar p={p} size={34} />}
+                <span className="quiz-label">{o.label}</span>
+                {right && <span aria-hidden="true">✓</span>}
+              </button>
+            );
+          })}
+        </div>
+      )}
+      {!excluded && (
+        <p className={cls("quiz-status", mineRight && "up", drinking && "down")}>
+          {open
+            ? mine
+              ? "נעול על התשובה שלך. אפשר לשנות עד שהזמן נגמר."
+              : `צודקים מקבלים ${fmt(round.reward)}, הכי מהיר עוד ${fmt(round.bonus)}. טועים שותים 🥃`
+            : !resolved
+              ? "הזמן נגמר. עוד רגע התשובה."
+              : mineRight
+                ? `צדקת! +${fmt(gain)}`
+                : drinking
+                  ? round.loserReason === "slow"
+                    ? "ענית אחרון. שוט! 🥃"
+                    : "טעות. שוט! 🥃"
+                  : "השאלה הזאת מאחורינו."}
+        </p>
+      )}
+    </div>
   );
 }
 

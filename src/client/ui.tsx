@@ -80,6 +80,23 @@ export function Avatar({ p, size = 44, className, badge }: { p: AvatarPerson; si
   );
 }
 
+/** For drinking / losing moments: the AI "shot" image if there is one, else a funny photo, else the profile photo. */
+export function FunnyFace({ p, size = 200, className }: { p: AvatarPerson; size?: number; className?: string }) {
+  const chain = [`/photos/shot/${p.id}.jpg`, `/photos/funny/${p.id}.jpg`, photoOf(p)];
+  const [i, setI] = useState(0);
+  return (
+    <span className={cls("avatar funny-face", p.isGroom && "groom", className)} style={{ width: size, height: size, fontSize: Math.round(size * 0.44) }}>
+      {i < chain.length ? (
+        <img src={chain[i]} alt="" draggable={false} onError={() => setI((x) => x + 1)} />
+      ) : (
+        <span className="avatar-initial" aria-hidden="true">
+          {p.name.slice(0, 1)}
+        </span>
+      )}
+    </span>
+  );
+}
+
 /** Top three on steps: second, first, third. */
 export function Podium({ list, size = "m", value }: { list: PlayerPub[]; size?: "s" | "m" | "l"; value?: (p: PlayerPub) => ReactNode }) {
   const [first, second, third] = list;

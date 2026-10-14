@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import type { Audience, ClientView, Mission, PlayerPub } from "../../shared/types";
-import { cls } from "../lib";
+import { cls, showTemplate } from "../lib";
 import { Avatar, Money, Sheet, ask } from "../ui";
 import type { Run } from "./AdminApp";
 
@@ -25,6 +25,8 @@ export function MissionsTab({ view, run }: { view: ClientView; run: Run }) {
   const decided = accusations.filter((a) => a.status !== "pending").slice(0, 6);
   const [edit, setEdit] = useState<Mission | "new" | null>(null);
   const [assignFor, setAssignFor] = useState<PlayerPub | null>(null);
+  const groom = players.find((p) => p.isGroom)?.name;
+  const fits = (m: Mission, p: PlayerPub) => (m.audience === "all" || (m.audience === "groom") === p.isGroom) && !(p.isGroom && m.template.includes("{G}"));
 
   return (
     <section className="stack">
@@ -32,6 +34,7 @@ export function MissionsTab({ view, run }: { view: ClientView; run: Run }) {
         כל מי שנכנס מקבל 3 משימות אוטומטית. מי שמסמן ״ביצעתי״ מקבל את השקדים מיד. כאן אפשר לבטל סימון שנראה לכם חשוד, להחליף משימות ולכתוב חדשות.
       </p>
 
+      <div className="missions-top">
       {recent.length > 0 && (
         <div className="felt recent">
           <h2 className="section-title">בוצעו לאחרונה</h2>
@@ -74,6 +77,7 @@ export function MissionsTab({ view, run }: { view: ClientView; run: Run }) {
           ))}
         </div>
       )}
+      </div>
 
       <div className="section-head">
         <h2 className="section-title">משימות לפי שחקן</h2>
@@ -82,6 +86,7 @@ export function MissionsTab({ view, run }: { view: ClientView; run: Run }) {
         </button>
       </div>
 
+      <div className="mp-grid">
       {players.map((p) => {
         const mine = missions.filter((m) => m.assignedTo === p.id);
         if (!mine.length) return null;
@@ -139,6 +144,7 @@ export function MissionsTab({ view, run }: { view: ClientView; run: Run }) {
           </div>
         );
       })}
+      </div>
 
       <div className="section-head">
         <h2 className="section-title">מאגר פנוי ({pool.length})</h2>
@@ -149,7 +155,7 @@ export function MissionsTab({ view, run }: { view: ClientView; run: Run }) {
       <ul className="pool">
         {pool.map((m) => (
           <li key={m.id} className="mrow">
-            <span className="mrow-text">{m.text}</span>
+            <span className="mrow-text">{showTemplate(m.template, groom)}</span>
             <span className="aud">{AUD[m.audience]}</span>
             <Money n={m.reward} size={14} />
             <div className="mrow-actions">
@@ -160,7 +166,7 @@ export function MissionsTab({ view, run }: { view: ClientView; run: Run }) {
                 type="button"
                 className="mini"
                 onClick={async () => {
-                  if (await ask({ title: "למחוק את המשימה?", body: m.text, ok: "מחיקה", danger: true })) await run("deleteMission", { missionId: m.id }, "נמחקה");
+                  if (await ask({ title: "למחוק את המשימה?", body: showTemplate(m.template, groom), ok: "מחיקה", danger: true })) await run("deleteMission", { missionId: m.id }, "נמחקה");
                 }}
               >
                 מחיקה
@@ -182,10 +188,10 @@ export function MissionsTab({ view, run }: { view: ClientView; run: Run }) {
             </button>
             <ul className="pool">
               {pool
-                .filter((m) => m.audience === "all" || (m.audience === "groom") === assignFor.isGroom)
+                .filter((m) => fits(m, assignFor))
                 .map((m) => (
                   <li key={m.id} className="mrow">
-                    <span className="mrow-text">{m.text}</span>
+                    <span className="mrow-text">{showTemplate(m.template, groom)}</span>
                     <Money n={m.reward} size={14} />
                     <button
                       type="button"
@@ -208,7 +214,29 @@ export function MissionsTab({ view, run }: { view: ClientView; run: Run }) {
 }
 
 function MissionForm({ value, players, run, onDone }: { value: Mission | null; players: PlayerPub[]; run: Run; onDone: () => void }) {
-  const [text, setText] = useState(value?.text ?? "");
+  const [text, setText] = useState(value?.template ?? "");
+  const ref = useRef<HTMLTextAreaElement>(null);
+  const groom = players.find((p) => p.isGroom)?.name ?? "החתן";
+  const friends = players.filter((p) => !p.isGroom);
+  const example = text
+    .replaceAll("{G}", groom)
+    .replaceAll("{X}", friends[1]?.name ?? "דרורי")
+    .replaceAll("{Y}", friends[2]?.name ?? "סיסו");
+  // after inserting a name slot, the caret lands right after it
+  const caret = useRef<number | null>(null);
+  useLayoutEffect(() => {
+    if (caret.current === null) return;
+    ref.current?.focus();
+    ref.current?.setSelectionRange(caret.current, caret.current);
+    caret.current = null;
+  }, [text]);
+  const insert = (tok: string) => {
+    const el = ref.current;
+    const at = el?.selectionStart ?? text.length;
+    const end = el?.selectionEnd ?? at;
+    caret.current = at + tok.length;
+    setText(text.slice(0, at) + tok + text.slice(end));
+  };
   const [reward, setReward] = useState(value?.reward ?? 150);
   const [audience, setAudience] = useState<Audience>(value?.audience ?? "all");
   const [assignedTo, setAssignedTo] = useState<string>(value?.assignedTo ?? "");
@@ -217,14 +245,29 @@ function MissionForm({ value, players, run, onDone }: { value: Mission | null; p
       className="form"
       onSubmit={async (e) => {
         e.preventDefault();
-        const ok = await run("saveMission", { mission: { id: value?.id, text, reward, audience, assignedTo: assignedTo || null } }, "המשימה נשמרה");
+        const ok = await run("saveMission", { mission: { id: value?.id, template: text, reward, audience, assignedTo: assignedTo || null } }, "המשימה נשמרה");
         if (ok) onDone();
       }}
     >
       <label className="field">
         <span>המשימה</span>
-        <textarea value={text} onChange={(e) => setText(e.target.value)} rows={3} required placeholder="למשל: תגרום לחתן להגיד ״פיסטוק״" />
+        <textarea ref={ref} value={text} onChange={(e) => setText(e.target.value)} rows={3} required placeholder="למשל: תגרום ל{X} לקרוא לך ״אבא״" />
       </label>
+      <div className="slot-help">
+        <span className="muted">שמות שמתמלאים לבד כשהמשימה מחולקת (אף פעם לא מי שמקבל אותה):</span>
+        <div className="choice-row">
+          <button type="button" className="btn btn-ghost btn-s" onClick={() => insert("{X}")}>
+            + חבר אקראי
+          </button>
+          <button type="button" className="btn btn-ghost btn-s" onClick={() => insert("{Y}")}>
+            + חבר נוסף
+          </button>
+          <button type="button" className="btn btn-ghost btn-s" onClick={() => insert("{G}")}>
+            + {groom}
+          </button>
+        </div>
+        {text.trim() && /\{[GXY]\}/.test(text) && <p className="slot-example">לדוגמה: {example}</p>}
+      </div>
       <div className="field">
         <span>פרס</span>
         <div className="choice-row">

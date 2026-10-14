@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import type { MyBet, PlayerPub, RoundPub } from "../shared/types";
 
 export const fmt = (n: number) => Math.round(n).toLocaleString("en-US");
@@ -98,4 +99,21 @@ export function kingAndLast(players: PlayerPub[]) {
   const list = ranked(players);
   const anyMoved = list.some((p) => p.spark.length > 1);
   return { king: anyMoved ? list[0]?.id ?? null : null, last: anyMoved && list.length > 1 ? list[list.length - 1].id : null };
+}
+
+export const LETTERS = ["א", "ב", "ג", "ד", "ה", "ו", "ז", "ח", "ט", "י"];
+
+/** Template placeholders shown the way a host reads them. */
+export const showTemplate = (t: string, groom = "החתן") => t.replaceAll("{X}", "‹חבר›").replaceAll("{Y}", "‹חבר נוסף›").replaceAll("{G}", groom);
+
+export function useMedia(query: string) {
+  const [match, setMatch] = useState(() => typeof matchMedia !== "undefined" && matchMedia(query).matches);
+  useEffect(() => {
+    const mq = matchMedia(query);
+    const update = () => setMatch(mq.matches);
+    update();
+    mq.addEventListener("change", update);
+    return () => mq.removeEventListener("change", update);
+  }, [query]);
+  return match;
 }

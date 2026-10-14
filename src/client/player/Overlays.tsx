@@ -42,7 +42,8 @@ function FlashView({ flash, onClose }: { flash: Flash | null; onClose: () => voi
 export function ResultOverlay({ view, meId }: { view: ClientView; meId: string }) {
   const [flash, setFlash] = useFlash();
   const rounds: RoundPub[] = [...(view.pub.round ? [view.pub.round] : []), ...view.pub.night];
-  const due = rounds.find((r) => r.status === "resolved" && view.me?.bets[r.id] && !lsGet(`sgn.seen.${r.id}.${r.resolvedAt}.${meId}`));
+  const involved = (r: RoundPub) => !!view.me?.bets[r.id] || (r.kind === "quiz" && r.losers.includes(meId));
+  const due = rounds.find((r) => r.status === "resolved" && involved(r) && !lsGet(`sgn.seen.${r.id}.${r.resolvedAt}.${meId}`));
   const key = due ? `sgn.seen.${due.id}.${due.resolvedAt}.${meId}` : null;
 
   useEffect(() => {
@@ -55,6 +56,21 @@ export function ResultOverlay({ view, meId }: { view: ClientView; meId: string }
     }
     const delta = due.results?.find((x) => x.playerId === meId)?.delta ?? 0;
     const won = view.me?.bets[due.id]?.optionId === due.winnerId;
+    if (due.kind === "quiz") {
+      // let the TV's drum roll land first (no cleanup: the next render already forgets this round)
+      window.setTimeout(() => {
+        if (due.losers.includes(meId)) {
+          setFlash({ kind: "drink", title: "🥃 שוט!", sub: due.loserReason === "slow" ? "צדקת, אבל ענית אחרון. לחיים!" : `התשובה הנכונה: ״${label}״. לחיים!` });
+          sfx.gotcha();
+          navigator.vibrate?.([120, 60, 120, 60, 300]);
+        } else if (won) {
+          setFlash({ kind: "win", amount: delta, title: "צדקת! 🧠", sub: `התשובה: ״${label}״` });
+          sfx.win();
+          burst("coins");
+        }
+      }, 1600);
+      return;
+    }
     setFlash({
       kind: won ? "win" : "lose",
       amount: delta,
@@ -106,6 +122,9 @@ export function FeedWatcher({ view, meId }: { view: ClientView; meId: string }) 
       seen.current.add(e.id);
       if (e.kind === "mission") {
         if (!mine.has(e.ref ?? "")) toast(e.text, "info", 4500);
+      } else if (e.kind === "shot") {
+        // whoever drinks gets the big moment from the quiz result; everyone else hears about it
+        if (!e.players.includes(meId)) toast(e.text, "info", 5000);
       } else if (e.kind === "wheel" && e.players.includes(meId)) {
         setFlash({ kind: "drink", title: "🍺 זה עליך!", sub: e.text.replace(/^🎡 /, "") });
         sfx.ding();

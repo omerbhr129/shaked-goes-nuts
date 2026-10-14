@@ -3,9 +3,13 @@ import { type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "re
 import type { ClientView, FeedEvent, PlayerPub, TvMode, WheelSpin } from "../../shared/types";
 import { cls, keepAwake } from "../lib";
 import { useGame } from "../net";
-import { sfx, unlockAudio } from "../sound";
+import { sfx, silence, unlockAudio } from "../sound";
 import { Avatar, Marquee, Ticker, burst } from "../ui";
-import { AwardsScreen, BoardScreen, Lobby, NightScreen, RevealScreen, RoundScreen, WinnerScreen } from "./Screens";
+import { AwardsScreen, BoardScreen, Lobby, NightScreen, QuizScreen, RevealScreen, RoundScreen, WinnerScreen } from "./Screens";
+
+// the host screen embeds a silent copy of the TV as a preview
+const PREVIEW = new URLSearchParams(location.search).has("preview");
+if (PREVIEW) silence();
 
 function effectiveMode(view: ClientView): TvMode {
   const m = view.pub.tv.mode;
@@ -33,7 +37,7 @@ function Stage({ children }: { children: ReactNode }) {
 
 export function TvApp() {
   const { game, view, status } = useGame("tv");
-  const [armed, setArmed] = useState(false);
+  const [armed, setArmed] = useState(PREVIEW);
   useTvSounds(view);
 
   const arm = async () => {
@@ -73,7 +77,7 @@ export function TvApp() {
               transition={{ duration: 0.45 }}
             >
               {mode === "lobby" && <Lobby view={view} />}
-              {mode === "round" && <RoundScreen view={view} game={game} />}
+              {mode === "round" && (view.pub.round?.kind === "quiz" ? <QuizScreen view={view} game={game} /> : <RoundScreen view={view} game={game} />)}
               {mode === "board" && <BoardScreen view={view} />}
               {mode === "night" && <NightScreen view={view} />}
               {mode === "missions" && <RevealScreen view={view} />}
@@ -82,7 +86,7 @@ export function TvApp() {
             </motion.div>
           </AnimatePresence>
           <Ticker players={view.pub.players} start={view.pub.settings.startBalance} />
-          <NewsBanner feed={view.pub.feed} players={view.pub.players} />
+          <NewsBanner feed={view.pub.feed} players={view.pub.players} skipShots={mode === "round"} />
           <WheelOverlay wheel={view.pub.wheel} players={view.pub.players} offset={game.offset} />
           <span className={cls("tv-conn", status)} aria-hidden="true" />
         </div>
@@ -118,10 +122,10 @@ function useTvSounds(view: ClientView | null) {
   }, [view]);
 }
 
-const NEWS_TAG: Record<string, string> = { mission: "מבזק", caught: "נתפס!", miss: "פספוס", bailout: "חילוץ", result: "הוכרע" };
+const NEWS_TAG: Record<string, string> = { mission: "מבזק", caught: "נתפס!", miss: "פספוס", bailout: "חילוץ", result: "הוכרע", shot: "שוט!" };
 
 /** Breaking news strip for things that just happened in the room. */
-function NewsBanner({ feed, players }: { feed: FeedEvent[]; players: PlayerPub[] }) {
+function NewsBanner({ feed, players, skipShots }: { feed: FeedEvent[]; players: PlayerPub[]; skipShots: boolean }) {
   const [queue, setQueue] = useState<FeedEvent[]>([]);
   const seen = useRef<Set<string> | null>(null);
   useEffect(() => {
@@ -129,7 +133,8 @@ function NewsBanner({ feed, players }: { feed: FeedEvent[]; players: PlayerPub[]
       seen.current = new Set(feed.map((e) => e.id));
       return;
     }
-    const fresh = feed.filter((e) => !seen.current!.has(e.id) && e.kind !== "wheel");
+    // the wheel and the quiz screen show their own big moments
+    const fresh = feed.filter((e) => !seen.current!.has(e.id) && e.kind !== "wheel" && !(skipShots && e.kind === "shot"));
     for (const e of feed) seen.current.add(e.id);
     if (fresh.length) setQueue((q) => [...q, ...fresh]);
   }, [feed]);

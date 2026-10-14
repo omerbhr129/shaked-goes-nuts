@@ -1,4 +1,4 @@
-import type { Audience, GameState, Mission, PlayerRec, RoundKind, RoundOption, RoundRec } from "../shared/types";
+import type { Audience, GameState, ID, Mission, PlayerRec, RoundKind, RoundOption, RoundRec } from "../shared/types";
 
 const PLAYERS: [id: string, name: string, ticker: string, groom?: boolean][] = [
   ["itay", "איתי", "SHKD", true],
@@ -23,8 +23,9 @@ const vs = (...ids: string[]): RoundOption[] => ids.map((id) => ({ id, label: NA
 const labels = (...ls: string[]): RoundOption[] => ls.map((label, i) => ({ id: `o${i + 1}`, label, playerId: null }));
 
 type RoundSeed = [emoji: string, title: string, note: string, options: RoundOption[], noBet: string[]];
+type QuizSeed = [emoji: string, title: string, note: string, options: RoundOption[], correct: ID | null, noBet: string[]];
 
-// Challenge rounds: the host opens them one at a time, each with a short countdown.
+// Challenges: the host opens one at a time, everyone bets into a shared pot.
 const CHALLENGES: RoundSeed[] = [
   ["🏀", "איתי יקלע 3 כדורים לכוסות תוך 30 שניות?", "בירפונג של החתן. שלוש קליעות לפני שנגמר הזמן = כן.", yesNo(), ["itay"]],
   ["🥜", "כמה שקדים איתי יתפוס בפה מתוך 5 זריקות?", "זורקים מ־3 מטרים. מה שנופל לרצפה לא נחשב. כן, זה השם של המשחק.", labels("0–1", "2–3", "4–5"), ["itay"]],
@@ -33,7 +34,6 @@ const CHALLENGES: RoundSeed[] = [
   ["😂", "יהלי יצליח להצחיק את איתי תוך 30 שניות?", "איתי חייב להישאר רציני. חיוך אחד = כן.", yesNo(), ["yali", "itay"]],
   ["🏝️", "את מי איתי ייקח איתו לחודש על אי בודד?", "איתי בוחר בלייב. אסור לשחד אותו בקול רם.", vs(...FRIENDS), ["itay"]],
   ["📱", "כמה תמונות של שחף יש לאיתי בגלריה מהחודש האחרון?", "סופרים ביחד בטלפון שלו. איתי לא נוגע.", labels("פחות מ־50", "50–150", "יותר מ־150"), ["itay"]],
-  ["💍", "איתי יענה נכון על 4 מתוך 5 שאלות על שחף?", "השאלות הוכנו מראש. 4 תשובות נכונות = כן.", yesNo(), ["itay"]],
   ["🥤", "מי יבנה פירמידה של 10 כוסות מהר יותר?", "דרורי נגד סיסו. נפלה? מתחילים מחדש.", vs("drori", "sisu"), ["drori", "sisu"]],
   ["🌶️", "דרורי יחזיק פלפל חריף בפה דקה שלמה בלי לשתות?", "דקה בטיימר. לגימה אחת של מים = לא.", yesNo(), ["drori"]],
   ["🍋", "בן הרוש יאכל פלח לימון בלי לעשות פרצוף?", "פרצוף אחד = לא. השופט: החתן.", yesNo(), ["benharoosh"]],
@@ -43,8 +43,22 @@ const CHALLENGES: RoundSeed[] = [
   ["📞", "איתי ישכנע את שחף להגיד בטלפון ״אני מתה על החברים שלך״?", "דקה אחת, רמקול פתוח, אסור להסביר לה למה.", yesNo(), ["itay"]],
   ["🫡", "מי יעשה יותר שכיבות סמיכה בדקה?", "בירמן נגד שמאי. כל הווילה סופרת בקול.", vs("birman", "shmay"), ["birman", "shmay"]],
   ["🎭", "איתי יחקה 3 חברים, והחבר׳ה ינחשו את כולם?", "עשר שניות לכל חיקוי. ניחוש אחד לא נכון = לא.", yesNo(), ["itay"]],
-  ["🧠", "מי ינצח בחידון ״מי מכיר את איתי הכי טוב״?", "10 שאלות על החתן. איתי בודק את התשובות.", vs(...FRIENDS), ["itay"]],
   ["🎤", "איתי ישיר את כל הפזמון בקריוקי בלי להציץ במילים?", "את השיר בוחרים החברים. טעות אחת = לא.", yesNo(), ["itay"]],
+];
+
+// Quiz questions: everyone answers on the phone. Right = almonds, wrong = a shot on the big screen.
+// correct = null means "איתי עונה בלייב" and the host taps the right answer at reveal.
+const QUIZ: QuizSeed[] = [
+  ["🍕", "אוכל אחד לכל החיים. מה איתי בוחר?", "כולם עונים, ואז איתי אומר את התשובה שלו בקול.", labels("פיצה", "שווארמה", "סושי", "המבורגר"), null, ["itay"]],
+  ["🥜", "שקד הוא בעצם…", "שאלת ידע. יש רק תשובה אחת נכונה.", labels("אגוז", "זרע של פרי", "קטנייה", "גרעין של תמר"), "o2", []],
+  ["❤️", "מי אמר ״אני אוהב אותך״ ראשון?", "איתי עונה. אסור לשקר, שחף תבדוק.", labels("איתי", "שחף"), null, ["itay"]],
+  ["😴", "כמה שעות איתי ישן בלילה רגיל?", "איתי עונה.", labels("פחות מ־6", "6", "7", "8 ומעלה"), null, ["itay"]],
+  ["🌍", "איזו מדינה מגדלת הכי הרבה שקדים בעולם?", "שאלת ידע.", labels("ארצות הברית", "ספרד", "איראן", "טורקיה"), "o1", []],
+  ["👶", "כמה ילדים איתי רוצה?", "איתי עונה.", labels("1", "2", "3", "4 ומעלה"), null, ["itay"]],
+  ["📱", "איזו אפליקציה איתי פותח הכי הרבה?", "בודקים בזמן מסך בטלפון שלו.", labels("אינסטגרם", "וואטסאפ", "טיקטוק", "יוטיוב"), null, ["itay"]],
+  ["🤵", "מה איתי ילבש לחתונה?", "איתי עונה.", labels("חליפה שחורה", "חליפה כחולה", "חליפה בהירה", "בלי חליפה בכלל"), null, ["itay"]],
+  ["🍳", "מה איתי הכי יודע לבשל?", "איתי עונה, החבר׳ה מאשרים.", labels("שקשוקה", "פסטה", "חביתה", "כלום, רק וולט"), null, ["itay"]],
+  ["🕰️", "מי מהחבר׳ה מכיר את איתי הכי מזמן?", "איתי עונה.", vs(...FRIENDS), null, ["itay"]],
 ];
 
 // Night bets: open all night next to the challenges, settled when it actually happens.
@@ -58,53 +72,63 @@ const NIGHT: RoundSeed[] = [
   ["☀️", "מי יתעורר אחרון מחר בבוקר?", "מי שיוצא אחרון מהמיטה.", vs(...ALL), []],
 ];
 
-type MissionSeed = [text: string, reward: number, audience: Audience];
+// Secret missions. {G} = the groom, {X} / {Y} = other players picked when the mission is dealt.
+// Nobody ever gets a mission about himself.
+type MissionSeed = [template: string, reward: number, audience: Audience];
 
 const MISSIONS: MissionSeed[] = [
-  // friends → the groom
-  ["תגרום לאיתי להגיד ״אני הכי מאוהב בעולם״ — בלי לבקש ממנו ישירות", 200, "friends"],
-  ["תגרום לאיתי להצטלם איתך בפוזה של פלמינגו (על רגל אחת)", 150, "friends"],
-  ["תגרום לאיתי לחקות את שחף", 200, "friends"],
-  ["תגרום לאיתי לקרוא לך ״אחי היקר״", 150, "friends"],
-  ["תגרום לאיתי לרקוד איתך סלואו לפחות 10 שניות", 200, "friends"],
-  ["תגרום לאיתי להגיד את המילה ״פיסטוק״", 100, "friends"],
-  ["תגרום לאיתי לספר איך הוא הכיר את שחף — בלי שישים לב שכיוונת לשם", 100, "friends"],
-  ["תגרום לאיתי לתת לך היי־פייב 3 פעמים בתוך 10 דקות", 100, "friends"],
-  ["תגרום לאיתי לשיר איתך דואט, לפחות שורה אחת", 150, "friends"],
-  ["תגרום לאיתי להודות שאתה החבר הכי טוב שלו", 200, "friends"],
-  ["תגרום לאיתי ללבוש משהו שלך — כובע, משקפיים או חולצה", 150, "friends"],
-  ["תמציא עם איתי לחיצת יד סודית ותגרום לו לעשות אותה איתך פעמיים", 150, "friends"],
-  // anyone
-  ["תגרום לשלושה חברים לעשות איתך ״לחיים״ באותו רגע", 100, "all"],
-  ["תשכנע חבר לספר סיפור מביך על עצמו", 150, "all"],
-  ["תגרום למישהו לשיר לפחות 10 שניות", 100, "all"],
-  ["תשכנע חבר לעשות איתך תחרות שכיבות סמיכה", 150, "all"],
-  ["תגרום לחבר לקרוא לך ״הבוס״", 200, "all"],
-  ["תגרום לשני חברים להתווכח על משהו טיפשי לפחות דקה", 150, "all"],
-  ["תגרום למישהו לחקות חיה", 150, "all"],
-  ["תכניס את המילה ״אבוקדו״ לשיחה 3 פעמים בלי שישאלו למה", 100, "all"],
-  ["תשכנע מישהו שהווילה רדופה — ותגרום לו לספר את זה למישהו אחר", 200, "all"],
-  ["תגרום לשלושה חברים להצטלם איתך סלפי עם פרצוף מפחיד", 150, "all"],
-  ["תגרום למישהו להביא לך שתייה בלי שביקשת ישירות", 100, "all"],
-  ["תגרום לחבר להגיד ״וואלה צודק״ שלוש פעמים על דברים שאמרת", 150, "all"],
-  ["תגרום למישהו להחמיא לך על השיער", 100, "all"],
-  ["תגרום לחבר לנאום נאום קצר לכבוד החתן", 150, "all"],
-  ["תגרום לחבר להכין לך משהו לאכול", 150, "all"],
-  ["תגרום לשני אנשים לצעוק ״SHAKED GOES NUTS״ ביחד", 200, "all"],
-  ["תגרום לחבר לעשות איתך ריקוד מסונכרן לפחות 10 שניות", 200, "all"],
-  ["תגרום למישהו לספר לך את הסיפור הכי מביך שלו מהצבא", 200, "all"],
-  ["תגרום לחבר לדבר במבטא צרפתי במשך דקה", 150, "all"],
-  ["תגרום למישהו להגיד לך ״אני אוהב אותך, אחי״", 100, "all"],
-  ["תגרום לחבר להחליף איתך מקום ליד המנגל בלי להסביר למה", 100, "all"],
-  ["תגרום למישהו לקפוץ איתך לבריכה באותו רגע", 150, "all"],
-  // groom only
-  ["תגרום לשלושה חברים להגיד לך ״מזל טוב״ בתוך דקה אחת", 150, "groom"],
-  ["תגרום לשני חברים להרים אותך על הידיים", 200, "groom"],
-  ["תגרום לחבר להגיד שלוש מחמאות על שחף", 150, "groom"],
-  ["תגרום לחבר לשיר לך שיר אהבה (לפחות שורה)", 200, "groom"],
-  ["תגרום למישהו להגיד ״החתן תמיד צודק״", 150, "groom"],
-  ["תשכנע את כולם לצילום קבוצתי — ותעמוד באמצע", 100, "groom"],
-  ["תגרום לחבר להודות שהוא מקנא בך", 150, "groom"],
+  // about the groom (never dealt to the groom)
+  ["תגרום ל{G} להציע לך נישואין על ברך אחת", 200, "friends"],
+  ["תגרום ל{G} להגיד בקול ״אני אגוז קשה״", 150, "friends"],
+  ["תגרום ל{G} להודות שהוא בוכה בסרטים של דיסני", 150, "friends"],
+  ["תגרום ל{G} לנאום לך נאום חתונה, כאילו אתה הכלה", 200, "friends"],
+  ["תגרום ל{G} להראות לך את הריקוד שהוא מתכנן לחתונה", 150, "friends"],
+  ["תגרום ל{G} ללבוש מגבת כמו גלימה של סופרמן לפחות 2 דקות", 150, "friends"],
+  ["תגרום ל{G} להגיד ״שחף תמיד צודקת״ בלי שתבקש ממנו", 100, "friends"],
+  ["תגרום ל{G} לעשות 10 שכיבות סמיכה כשאתה יושב לו על הגב", 200, "friends"],
+  ["תגרום ל{G} להאכיל אותך ביס מהצלחת שלו", 100, "friends"],
+  ["תגרום ל{G} לחקות איך שחף מעירה לו על משהו", 150, "friends"],
+  ["תגרום ל{G} להגיד עם כוס ביד ״זאת הפעם האחרונה שאני רווק״", 100, "friends"],
+  // about another player
+  ["תגרום ל{X} לקרוא לך ״אבא״", 150, "all"],
+  ["תגרום ל{X} להצטלם איתך בפוזת טיטאניק", 150, "all"],
+  ["תגרום ל{X} למרוח לך קרם הגנה על הגב", 150, "all"],
+  ["תגרום ל{X} לעשות לך מסאז׳ בכתפיים לפחות 10 שניות", 100, "all"],
+  ["תגרום ל{X} להחליף איתך נעליים לחצי שעה", 200, "all"],
+  ["תגרום ל{X} לבקש ממך סליחה על משהו שהוא בכלל לא עשה", 150, "all"],
+  ["תגרום ל{X} לחקות תרנגולת מול כולם", 150, "all"],
+  ["תגרום ל{X} להאכיל אותך ביד", 100, "all"],
+  ["תגרום ל{X} להגיד ״אני קרנבל של רגשות״ בלי שתבקש ממנו", 200, "all"],
+  ["תגרום ל{X} לענות לך ״כן המפקד״ שלוש פעמים", 100, "all"],
+  ["תגרום ל{X} לסדר לך את השיער", 100, "all"],
+  ["תגרום ל{X} לצלם אותך 10 פעמים עד שתהיה מרוצה מהתמונה", 100, "all"],
+  ["תגרום ל{X} לדבר במבטא רוסי לפחות דקה", 150, "all"],
+  ["תגרום ל{X} להוריד את החולצה בלי לבקש ממנו ישירות", 200, "all"],
+  ["תגרום ל{X} להניח את הראש שלו על הכתף שלך", 150, "all"],
+  ["תגרום ל{X} להתקשר אליך כשאתה עומד ממש לידו", 150, "all"],
+  ["תגרום ל{X} להכריז בקול ״אני הכי חתיך פה״", 150, "all"],
+  ["תגרום ל{X} לרקוד על כיסא לפחות 10 שניות", 200, "all"],
+  ["תגרום ל{X} לספר לך את הסיפור הכי מביך שלו מהצבא", 150, "all"],
+  ["תגרום ל{X} ללכת על ארבע לפחות 3 מטרים", 200, "all"],
+  ["תגרום ל{X} לקרוא לך ״המלך״ שלוש פעמים", 200, "all"],
+  ["תגרום ל{X} לנשק לך את הלחי", 150, "all"],
+  ["תגרום ל{X} לזרוק לך שקד לפה מ־3 מטרים, ולתפוס", 100, "all"],
+  ["תגרום ל{X} לשיר לך ״יום הולדת שמח״, למרות שאין לך יום הולדת", 150, "all"],
+  ["תתנהג מוזר עד ש{X} ישאל אותך ״אחי, אתה בסדר?״", 100, "all"],
+  ["תגרום ל{X} להיכנס איתך לבריכה עם הבגדים", 200, "all"],
+  // about two other players
+  ["תגרום ל{X} ול{Y} לרקוד סלואו ביחד", 200, "all"],
+  ["תגרום ל{X} ול{Y} להתווכח מי מהם יותר יפה", 150, "all"],
+  ["תגרום ל{X} להגיד ל{Y} ״אתה הכי יפה פה״", 150, "all"],
+  ["תגרום ל{X} להרים את {Y} על הידיים", 200, "all"],
+  ["תגרום ל{X} ול{Y} להחליף חולצות", 200, "all"],
+  // only for the groom
+  ["תגרום ל{X} לנאום לכבודך עם כוס ביד", 150, "groom"],
+  ["תגרום ל{X} לפנות לך את המקום שלו על הספה, בלי לבקש ישירות", 100, "groom"],
+  ["תגרום ל{X} להגיד ״שחף זכתה בלוטו״", 150, "groom"],
+  ["תגרום ל{X} לשיר לך שיר אהבה (לפחות שורה)", 200, "groom"],
+  ["תגרום ל{X} להרים אותך על הידיים", 200, "groom"],
+  ["תגרום ל{X} לנגב לך את הפה אחרי שאכלת", 150, "groom"],
 ];
 
 function round(kind: RoundKind, seed: RoundSeed, i: number): RoundRec {
@@ -121,6 +145,8 @@ function round(kind: RoundKind, seed: RoundSeed, i: number): RoundRec {
     maxBet: 500,
     seconds: kind === "night" ? 0 : 60,
     bonus: kind === "night" ? 300 : 200,
+    reward: 0,
+    correctId: null,
     noBet,
     status: "draft",
     openedAt: null,
@@ -128,7 +154,26 @@ function round(kind: RoundKind, seed: RoundSeed, i: number): RoundRec {
     winnerId: null,
     resolvedAt: null,
     refunded: false,
+    losers: [],
+    loserReason: null,
   };
+}
+
+function quiz(seed: QuizSeed, i: number): RoundRec {
+  const [emoji, title, note, options, correct, noBet] = seed;
+  return { ...round("quiz", [emoji, title, note, options, noBet], i), id: `q${i + 1}`, seconds: 25, bonus: 50, reward: 100, correctId: correct };
+}
+
+/** Challenges with a quiz question after every two. */
+function interleave(): RoundRec[] {
+  const ch = CHALLENGES.map((r, i) => round("challenge", r, i));
+  const qz = QUIZ.map(quiz);
+  const out: RoundRec[] = [];
+  while (ch.length || qz.length) {
+    out.push(...ch.splice(0, 2));
+    if (qz.length) out.push(qz.shift()!);
+  }
+  return out;
 }
 
 export function seedState(now: number): GameState {
@@ -141,9 +186,11 @@ export function seedState(now: number): GameState {
     token: null,
     joinedAt: null,
   }));
-  const missions: Mission[] = MISSIONS.map(([text, reward, audience], i) => ({
+  const missions: Mission[] = MISSIONS.map(([template, reward, audience], i) => ({
     id: `m${i + 1}`,
-    text,
+    template,
+    text: template,
+    targets: {},
     reward,
     audience,
     assignedTo: null,
@@ -157,7 +204,7 @@ export function seedState(now: number): GameState {
     seq: 0,
     settings: { currency: "שקדים", startBalance: 1000, allowJoinNew: true, bankBonus: 200, catchReward: 100, falsePenalty: 50, bailoutAmount: 300 },
     players,
-    rounds: [...CHALLENGES.map((r, i) => round("challenge", r, i)), ...NIGHT.map((r, i) => round("night", r, i))],
+    rounds: [...interleave(), ...NIGHT.map((r, i) => round("night", r, i))],
     bets: [],
     missions,
     ledger: [],

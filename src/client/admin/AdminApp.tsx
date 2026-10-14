@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ClientView, PlayerPub, TvMode } from "../../shared/types";
 import { awardSteps } from "../awards";
-import { cls, fmt } from "../lib";
+import { cls, fmt, useMedia } from "../lib";
 import { creds, type Game, useGame } from "../net";
 import { QR } from "../qr";
 import { sfx } from "../sound";
@@ -43,6 +43,7 @@ export function AdminApp() {
   const { game, view, status } = useGame("admin");
   const [tab, setTab] = useState<Tab>("rounds");
   const run = useRun(game);
+  const wide = useMedia("(min-width: 1100px)");
   useInboxAlerts(view);
 
   if (!view)
@@ -62,7 +63,7 @@ export function AdminApp() {
   ];
 
   return (
-    <div className="admin">
+    <div className={cls("admin", wide && "wide")}>
       <ConnBanner status={status} />
       <div className="admin-head">
         <header className="admin-top">
@@ -88,7 +89,7 @@ export function AdminApp() {
         {tab === "rounds" && <RoundsTab game={game} view={view} run={run} />}
         {tab === "missions" && <MissionsTab view={view} run={run} />}
         {tab === "players" && <PlayersTab game={game} view={view} run={run} />}
-        {tab === "tv" && <TvTab view={view} run={run} />}
+        {tab === "tv" && <TvTab view={view} run={run} wide={wide} />}
       </main>
     </div>
   );
@@ -237,11 +238,12 @@ export function WheelButtons({ run }: { run: Run }) {
   );
 }
 
-function TvTab({ view, run }: { view: ClientView; run: Run }) {
+function TvTab({ view, run, wide }: { view: ClientView; run: Run; wide: boolean }) {
+  const [peek, setPeek] = useState(false);
   const modes: [TvMode, string, string][] = [
     ["lobby", "🎰 מסך פתיחה", "הלוגו, תעודת המניה של איתי וקוד QR להצטרפות"],
-    ["round", "🎲 האתגר הנוכחי", "השאלה, הקופה, היחסים החיים והתוצאה"],
-    ["board", "📈 מצב המסחר", "פודיום, מי המלך ומי השקד המר, וגרף לכל אחד"],
+    ["round", "🎲 הסיבוב הנוכחי", "האתגר או שאלת הידע: השאלה, הקופה והתוצאה"],
+    ["board", "📈 הבורסה", "פודיום, מי המלך ומי השקד המר, וגרף לכל אחד"],
     ["night", "🌙 הימורי הלילה", "כל הקופות והיחסים של הימורי הלילה"],
     ["missions", "🤫 חשיפת המשימות", "מציג את המשימות של כולם. לסוף הערב בלבד"],
     ["awards", "🏆 טקס פרסים", "פרסים מצחיקים, שלושה פודיומים, והשקד המר"],
@@ -276,7 +278,8 @@ function TvTab({ view, run }: { view: ClientView; run: Run }) {
   };
 
   return (
-    <section className="stack">
+    <section className="tv-tab">
+      <div className="tv-tab-ctl stack">
       <h2 className="section-title">מה מוצג בטלוויזיה</h2>
       <div className="tv-modes">
         {modes.map(([m, label, desc]) => (
@@ -330,6 +333,29 @@ function TvTab({ view, run }: { view: ClientView; run: Run }) {
         <div className="links-qr">
           <QR url={origin} size={200} />
         </div>
+      </div>
+      </div>
+
+      <div className="tv-tab-preview">
+        {wide || peek ? (
+          <div className="tv-preview felt">
+            <div className="tv-preview-head">
+              <h3>👁 מה רואים עכשיו בטלוויזיה</h3>
+              {!wide && (
+                <button type="button" className="link-btn" onClick={() => setPeek(false)}>
+                  הסתרה
+                </button>
+              )}
+            </div>
+            <div className="tv-preview-frame">
+              <iframe src="/tv?preview=1" title="תצוגה מקדימה של הטלוויזיה" loading="lazy" />
+            </div>
+          </div>
+        ) : (
+          <button type="button" className="btn btn-ghost" onClick={() => setPeek(true)}>
+            👁 להציג כאן מה רואים בטלוויזיה
+          </button>
+        )}
       </div>
     </section>
   );

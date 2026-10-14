@@ -87,8 +87,14 @@ function noise(at: number, dur: number, peak = 0.2, freq = 2000, q = 0.8) {
   src.start(t0);
 }
 
+let silent = false;
+/** Silence this page only (not saved): used by the TV preview inside the host screen. */
+export function silence() {
+  silent = true;
+}
+
 function play(fn: () => void) {
-  if (muted) return;
+  if (muted || silent) return;
   unlockAudio();
   if (ctx) fn();
 }

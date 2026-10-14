@@ -57,8 +57,24 @@ for (const id of ids) {
   const v = await view({ token: tokens[id] });
   const mine = v.me.missions;
   ok(mine.every((m) => m.assignedTo === id), `${id} sees only own missions`);
-  if (id === "itay") ok(mine.every((m) => m.audience !== "friends"), "groom never gets a mission about himself");
+  const slots = (m) => new Set([...m.template.matchAll(/\{([GXY])\}/g)].map((x) => x[1]));
+  ok(
+    mine.every((m) => !Object.values(m.targets).includes(id) && !/\{[GXY]\}/.test(m.text) && Object.keys(m.targets).length === slots(m).size && !(m.targets.X && m.targets.X === m.targets.Y)),
+    `${id}: every mission names other people, never himself (${mine.map((m) => m.text).join(" | ")})`,
+  );
+  if (id === "itay") ok(mine.every((m) => m.audience !== "friends" && !m.template.includes("{G}")), "groom never gets a mission about himself");
+  else ok(mine.filter((m) => m.template.includes("{G}")).length === 1, `${id}: exactly one mission about the groom, the rest about the guys`);
 }
+
+console.log("host writes a mission with a name slot");
+r = await admin("saveMission", { mission: { template: "תגרום ל{X} לקרוא לך ״אבא״ בקול", reward: 150, audience: "all", assignedTo: "drori" } });
+const dm = (await view({ token: tokens.drori })).me.missions.find((m) => m.id === r.r?.id);
+ok(r.ok && dm && !dm.text.includes("{X}") && dm.targets.X && dm.targets.X !== "drori", `slot filled in: ${dm?.text}`);
+await admin("deleteMission", { missionId: r.r.id });
+const gm = (await admin("saveMission", { mission: { template: "תגרום ל{G} להגיד ״בדיקה״", reward: 100, audience: "friends" } })).r.id;
+r = await admin("assignMission", { missionId: gm, playerId: "itay" });
+ok(!r.ok, `a mission about the groom can't go to the groom (${r.err})`);
+await admin("deleteMission", { missionId: gm });
 
 console.log("challenge round with a shared pot");
 const v0 = await view({ key: KEY });
@@ -129,6 +145,71 @@ const yaliBefore = bal(await pub(), "yali");
 await admin("judgeAccusation", { accusationId: acc2.id });
 ok(bal(await pub(), "yali") === yaliBefore - 50, "false accusation costs 50");
 
+console.log("quiz: right answers pay, wrong or silent ones drink");
+const vq = (await view({ key: KEY })).admin.rounds;
+const order = vq.filter((x) => x.kind !== "night").map((x) => x.kind);
+ok(order[2] === "quiz" && order[5] === "quiz", "a quiz after every two challenges");
+const q2 = vq.find((x) => x.id === "q2");
+ok(q2.correctId === "o2", "almond quiz has its answer set in advance");
+await admin("openRound", { roundId: q2.id, seconds: 0 });
+const qb = Object.fromEntries((await pub()).players.map((x) => [x.id, x.balance]));
+const answer = (id, optionId) => act("bet", { roundId: q2.id, optionId, amount: 999 }, { token: tokens[id] });
+for (const [id, o] of [["shmay", "o2"], ["ayalon", "o1"], ["drori", "o2"], ["yali", "o3"], ["birman", "o4"], ["itay", "o2"], ["benharoosh", "o2"]]) await answer(id, o);
+await answer("yali", "o2");
+p = await pub();
+ok(p.round.kind === "quiz" && p.round.bets === null && p.round.stats.every((x) => x.count === 0), "while open nobody sees how others answered");
+ok(p.round.bettors.length === 7 && p.round.staked === 0, "answers cost nothing");
+ok((await view({ token: tokens.yali })).me.bets[q2.id].optionId === "o2", "an answer can be changed while open");
+await admin("closeRound", { roundId: q2.id });
+p = await pub();
+ok(p.round.status === "resolved" && p.round.winnerId === "o2", "closing a quiz with a known answer reveals it right away");
+const qd = (id) => bal(p, id) - qb[id];
+ok(qd("shmay") === 150 && qd("drori") === 100 && qd("yali") === 100 && qd("itay") === 100 && qd("benharoosh") === 100, "right: +100, fastest +50 more");
+ok(qd("ayalon") === 0 && qd("birman") === 0 && qd("sisu") === 0, "wrong answers cost no almonds");
+ok(JSON.stringify(p.round.losers) === JSON.stringify(["ayalon", "birman", "sisu"]) && p.round.loserReason === "wrong", `wrong and silent drink: ${p.round.losers}`);
+const shot = p.feed.find((e) => e.kind === "shot" && e.ref === q2.id);
+ok(shot && shot.players.length === 3 && shot.text.includes("שוט"), `shot announced: ${shot?.text}`);
+ok(p.round.bets.length === 7 && p.round.results.find((x) => x.playerId === "shmay").delta === 150, "after the reveal everyone sees who answered what");
+
+console.log("quiz: everyone right → the slowest drinks, and it closes itself");
+const q5 = vq.find((x) => x.id === "q5");
+await admin("openRound", { roundId: q5.id, seconds: 0 });
+for (const id of ids) await act("bet", { roundId: q5.id, optionId: "o1", amount: 0 }, { token: tokens[id] });
+p = await pub();
+ok(p.round.status === "resolved", "last answer closed the quiz and revealed it");
+ok(p.round.losers.length === 1 && p.round.losers[0] === ids[ids.length - 1] && p.round.loserReason === "slow", `slowest drinks: ${p.round.losers}`);
+
+console.log("quiz: Itay answers live, the host picks the answer");
+const q1 = vq.find((x) => x.id === "q1");
+await admin("openRound", { roundId: q1.id, seconds: 0 });
+ok(!(await act("bet", { roundId: q1.id, optionId: "o1", amount: 0 }, { token: tokens.itay })).ok, "the groom doesn't answer a question about himself");
+for (const id of ids.filter((x) => x !== "itay")) await act("bet", { roundId: q1.id, optionId: id === "sisu" ? "o2" : "o1", amount: 0 }, { token: tokens[id] });
+p = await pub();
+ok(p.round.status === "closed", "everyone answered → closed, waiting for Itay");
+const sisuQ = bal(p, "sisu");
+await admin("resolveRound", { roundId: q1.id, optionId: "o2" });
+p = await pub();
+ok(p.round.losers.length === 6 && !p.round.losers.includes("itay") && !p.round.losers.includes("sisu"), "host's pick decides who drinks");
+await admin("undoResolve", { roundId: q1.id });
+p = await pub();
+ok(p.round.status === "closed" && p.round.losers.length === 0 && bal(p, "sisu") === sisuQ, "a quiz result can be undone");
+await admin("cancelRound", { roundId: q1.id });
+
+console.log("quiz: the host writes one, the timer reveals it");
+r = await admin("saveRound", { round: { kind: "quiz", emoji: "❓", title: "בדיקה: כמה זה 2+2?", options: [{ label: "4" }, { label: "5" }], correctIndex: null } });
+ok(r.ok && (await view({ key: KEY })).admin.rounds.find((x) => x.id === r.r.id).correctId === null, "no answer picked → the host decides at the reveal");
+r = await admin("saveRound", { round: { kind: "quiz", emoji: "❓", title: "בדיקה: כמה זה 2+2?", options: [{ label: "5" }, { label: "4" }], correctIndex: 1 } });
+const tq = (await view({ key: KEY })).admin.rounds.find((x) => x.id === r.r.id);
+ok(tq.correctId === tq.options[1].id && tq.reward === 100 && tq.seconds === 25, "answer, reward and timer saved");
+await admin("openRound", { roundId: tq.id, seconds: 2 });
+await act("bet", { roundId: tq.id, optionId: tq.options[1].id, amount: 0 }, { token: tokens.birman });
+await sleep(3300);
+p = await pub();
+ok(p.round.status === "resolved" && p.round.losers.length === 7 && !p.round.losers.includes("birman"), "time up → revealed by itself, the silent drink");
+await admin("cancelRound", { roundId: tq.id });
+await admin("deleteRound", { roundId: tq.id });
+for (const r0 of (await view({ key: KEY })).admin.rounds.filter((x) => x.title.startsWith("בדיקה"))) await admin("deleteRound", { roundId: r0.id });
+
 console.log("bailout, wheel, awards");
 await admin("adjust", { playerId: "sisu", delta: -2000, note: "בדיקה" });
 r = await act("requestBailout", {}, { token: tokens.sisu });
@@ -150,6 +231,7 @@ await admin("setTv", { mode: "awards" });
 await admin("tvStep", { delta: 1 });
 p = await pub();
 ok(Array.isArray(p.stats) && p.tv.step === 1 && p.stats.find((s) => s.id === "drori").catches === 1, "awards mode publishes stats");
+ok(p.stats.find((s) => s.id === "shmay").quizRight === 2 && p.stats.find((s) => s.id === "ayalon").shots === 1, "quiz stats for the 🧠 and 🥃 awards");
 await admin("setTv", { mode: "missions" });
 p = await pub();
 ok(p.reveal.find((e) => e.playerId === "ayalon").missions.some((m) => m.status === "burned" && m.caughtBy === "drori"), "reveal shows who burned whom");
