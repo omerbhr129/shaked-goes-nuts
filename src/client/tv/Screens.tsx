@@ -1,11 +1,12 @@
-import { motion } from "motion/react";
+import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useMemo, useState } from "react";
 import type { ClientView, PlayerPub, PublicBet, RoundPub } from "../../shared/types";
-import { cls, fmt, mmss, photoOf, ranked } from "../lib";
+import { type AwardStep, awardSteps } from "../awards";
+import { cls, fmt, fmtX, kingAndLast, mmss, multiplier, photoOf, potOf, ranked, signed } from "../lib";
 import { type Game, useServerNow } from "../net";
 import { QR } from "../qr";
 import { sfx } from "../sound";
-import { Avatar, Change, Led, Marquee, Money, Spark, burst } from "../ui";
+import { Avatar, Change, Coin, Led, Marquee, Money, Podium, Spark, burst } from "../ui";
 
 const byId = (players: PlayerPub[]) => Object.fromEntries(players.map((p) => [p.id, p])) as Record<string, PlayerPub>;
 
@@ -66,7 +67,7 @@ export function Lobby({ view }: { view: ClientView }) {
         <Marquee size="l" lights />
         <h1 className="lobby-h">הבורסה של החתן נפתחה</h1>
         <p className="lobby-p">
-          סורקים, בוחרים שם ומקבלים {fmt(startBalance)} {currency}. מהמרים על מה שקורה הלילה ומבצעים משימות סודיות. מי שמסיים הכי עשיר, מנצח.
+          סורקים, בוחרים שם ומקבלים {fmt(startBalance)} {currency} ושלוש משימות סודיות. מהמרים על מה שקורה הלילה. מי שמסיים הכי עשיר, מנצח.
         </p>
         <div className="lobby-qr">
           <QR url={location.origin} size={260} />
@@ -88,7 +89,21 @@ export function Lobby({ view }: { view: ClientView }) {
   );
 }
 
-/* ---------------- round ---------------- */
+/* ---------------- live round ---------------- */
+
+/** A multiplier that flips like a departures board when it moves. */
+function Odds({ value }: { value: number | null }) {
+  const text = value === null ? "—" : fmtX(value);
+  return (
+    <span className="odds">
+      <AnimatePresence mode="popLayout" initial={false}>
+        <motion.span key={text} initial={{ y: -24, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: 24, opacity: 0 }} transition={{ duration: 0.3 }}>
+          {text}
+        </motion.span>
+      </AnimatePresence>
+    </span>
+  );
+}
 
 export function RoundScreen({ view, game }: { view: ClientView; game: Game }) {
   const r = view.pub.round!;
@@ -119,8 +134,8 @@ export function RoundScreen({ view, game }: { view: ClientView; game: Game }) {
   }, [secsLeft]);
 
   const showResult = r.status === "resolved" && !suspense;
-  const pot = r.stats.reduce((a, s) => a + s.total, 0);
   const many = r.options.length > 3;
+  const deltaOf = (pid: string) => r.results?.find((x) => x.playerId === pid)?.delta ?? 0;
 
   return (
     <div className={cls("tvround", many && "many")}>
@@ -128,7 +143,14 @@ export function RoundScreen({ view, game }: { view: ClientView; game: Game }) {
         <span className="tvround-num">
           סיבוב {r.number} מתוך {view.pub.roundsTotal}
         </span>
-        <Marquee size="s" />
+        <div className="tv-pot">
+          <span className="tv-pot-label">בקופה</span>
+          <span className="tv-pot-amount">
+            <Led value={potOf(r)} />
+            <Coin size={34} />
+          </span>
+          <span className="tv-pot-note">כולל {fmt(r.bonus)} בונוס מהבנק</span>
+        </div>
         <RoundClock r={r} open={open} now={now} suspense={suspense} />
       </header>
 
@@ -151,23 +173,25 @@ export function RoundScreen({ view, game }: { view: ClientView; game: Game }) {
             <motion.div key={o.id} layout className={cls("tvopt", win && "win", lose && "lose", p && "has-photo")}>
               {p ? (
                 <div className="tvopt-person">
-                  <Avatar p={p} size={many ? 110 : 170} />
+                  <Avatar p={p} size={many ? 110 : 160} />
                   <span className="tvopt-label">{o.label}</span>
                 </div>
               ) : (
                 <span className="tvopt-big">{o.label}</span>
               )}
               <div className="tvopt-stats">
-                <span>{st.count === 1 ? "הימור אחד" : `${st.count} הימורים`}</span>
-                <Money n={st.total} size={many ? 22 : 28} />
+                <Odds value={multiplier(r, o.id)} />
+                <span className="tvopt-count">
+                  {st.count === 1 ? "הימור אחד" : `${st.count} הימורים`} · <Money n={st.total} size={many ? 18 : 24} />
+                </span>
               </div>
               <div className="tvopt-bar">
-                <motion.div initial={false} animate={{ scaleX: pot ? st.total / pot : 0 }} transition={{ type: "spring", stiffness: 90, damping: 18 }} />
+                <motion.div initial={false} animate={{ scaleX: r.staked ? st.total / r.staked : 0 }} transition={{ type: "spring", stiffness: 90, damping: 18 }} />
               </div>
               {r.bets && (
                 <div className="tvopt-backers">
                   {backers.map((b) => (
-                    <Backer key={b.playerId} b={b} p={people[b.playerId]} outcome={showResult ? (win ? "up" : "down") : null} />
+                    <Backer key={b.playerId} b={b} p={people[b.playerId]} delta={showResult && !r.refunded ? deltaOf(b.playerId) : null} />
                   ))}
                 </div>
               )}
@@ -181,7 +205,7 @@ export function RoundScreen({ view, game }: { view: ClientView; game: Game }) {
         {open && <Waiting r={r} people={view.pub.players} />}
         {!open && r.status !== "resolved" && <div className="tv-banner">🔒 ההימורים נסגרו. האתגר מתחיל!</div>}
         {r.status === "resolved" && suspense && <div className="tv-banner pulse">והתוצאה היא…</div>}
-        {showResult && <Results r={r} people={people} />}
+        {showResult && (r.refunded ? <div className="tv-banner">אף אחד לא צדק! כל ההימורים חוזרים לבעלים</div> : <Results r={r} people={people} />)}
       </footer>
     </div>
   );
@@ -207,12 +231,13 @@ function RoundClock({ r, open, now, suspense }: { r: RoundPub; open: boolean; no
   return <span className={cls("status-pill", open && "live")}>{label}</span>;
 }
 
-function Backer({ b, p, outcome }: { b: PublicBet; p?: PlayerPub; outcome: "up" | "down" | null }) {
+function Backer({ b, p, delta }: { b: PublicBet; p?: PlayerPub; delta: number | null }) {
   if (!p) return null;
+  const dir = delta === null ? null : delta >= 0 ? "up" : "down";
   return (
-    <motion.span className={cls("backer", outcome)} initial={{ scale: 0 }} animate={{ scale: 1 }} transition={{ type: "spring", stiffness: 400, damping: 20 }}>
+    <motion.span className={cls("backer", dir)} initial={{ scale: 0 }} animate={{ scale: 1 }} transition={{ type: "spring", stiffness: 400, damping: 20 }}>
       <Avatar p={p} size={46} />
-      <span className="num">{outcome === "up" ? "+" : outcome === "down" ? "−" : ""}{fmt(b.amount)}</span>
+      <span className="num">{delta === null ? fmt(b.amount) : signed(delta)}</span>
     </motion.span>
   );
 }
@@ -250,73 +275,140 @@ function Waiting({ r, people }: { r: RoundPub; people: PlayerPub[] }) {
 }
 
 function Results({ r, people }: { r: RoundPub; people: Record<string, PlayerPub> }) {
-  const bets = r.bets ?? [];
-  if (!bets.length) return <div className="tv-banner">אף אחד לא הימר בסיבוב הזה</div>;
-  const winners = bets.filter((b) => b.optionId === r.winnerId).sort((a, b) => b.amount - a.amount);
-  const losers = bets.filter((b) => b.optionId !== r.winnerId).sort((a, b) => b.amount - a.amount);
+  const results = r.results ?? [];
+  if (!results.length) return <div className="tv-banner">אף אחד לא הימר בסיבוב הזה</div>;
+  const winners = results.filter((x) => x.delta >= 0).sort((a, b) => b.delta - a.delta);
+  const losers = results.filter((x) => x.delta < 0).sort((a, b) => a.delta - b.delta);
+  const item = (x: { playerId: string; delta: number }, i: number, base: number) => {
+    const p = people[x.playerId];
+    if (!p) return null;
+    return (
+      <motion.span key={x.playerId} className="results-item" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: base + 0.15 * i }}>
+        <Avatar p={p} size={52} />
+        <span>{p.name}</span>
+        <Money n={x.delta} sign size={24} />
+      </motion.span>
+    );
+  };
   return (
     <div className="results">
       <div className="results-col up">
         <span className="results-label">הרוויחו</span>
-        {winners.length ? (
-          winners.map((b, i) => (
-            <motion.span key={b.playerId} className="results-item" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 * i }}>
-              <Avatar p={people[b.playerId] ?? { id: b.playerId, name: "?", photo: null, isGroom: false }} size={52} />
-              <span>{people[b.playerId]?.name}</span>
-              <Money n={b.amount} sign size={24} />
-            </motion.span>
-          ))
-        ) : (
-          <span className="results-none">אף אחד 😅</span>
-        )}
+        {winners.length ? winners.map((x, i) => item(x, i, 0)) : <span className="results-none">אף אחד 😅</span>}
       </div>
       <div className="results-col down">
         <span className="results-label">הפסידו</span>
-        {losers.length ? (
-          losers.map((b, i) => (
-            <motion.span key={b.playerId} className="results-item" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 + 0.15 * i }}>
-              <Avatar p={people[b.playerId] ?? { id: b.playerId, name: "?", photo: null, isGroom: false }} size={52} />
-              <span>{people[b.playerId]?.name}</span>
-              <Money n={-b.amount} sign size={24} />
-            </motion.span>
-          ))
-        ) : (
-          <span className="results-none">אף אחד 🎉</span>
-        )}
+        {losers.length ? losers.map((x, i) => item(x, i, 0.3)) : <span className="results-none">אף אחד 🎉</span>}
       </div>
     </div>
   );
 }
 
-/* ---------------- leaderboard ---------------- */
+/* ---------------- the exchange: podium + board ---------------- */
 
 export function BoardScreen({ view }: { view: ClientView }) {
   const list = ranked(view.pub.players);
   const start = view.pub.settings.startBalance;
+  const { king, last } = kingAndLast(view.pub.players);
+  const kingP = list.find((p) => p.id === king);
+  const lastP = list.find((p) => p.id === last);
   return (
     <div className="tvboard">
       <header className="tvboard-head">
         <Marquee size="s" />
         <h1>מצב המסחר</h1>
         <span className="tvboard-sub">
-          {view.pub.roundsDone} מתוך {view.pub.roundsTotal} סיבובים הוכרעו
+          {view.pub.roundsDone} מתוך {view.pub.roundsTotal} אתגרים הוכרעו
         </span>
       </header>
-      <ol className="tvboard-list">
-        {list.map((p, i) => (
-          <motion.li layout transition={{ type: "spring", stiffness: 110, damping: 20 }} key={p.id} className={cls("tvrow", i === 0 && "lead")}>
-            <span className="tvrow-rank num">{i + 1}</span>
-            <Avatar p={p} size={68} />
-            <span className="tvrow-name">{p.name}</span>
-            <span className="tvrow-ticker">{p.ticker}</span>
-            <Spark data={p.spark} w={300} h={56} />
-            <span className="tvrow-bal">
-              <Led value={p.balance} />
-            </span>
-            <Change balance={p.balance} start={start} />
-          </motion.li>
-        ))}
-      </ol>
+      <div className="tvboard-body">
+        <section className="tvboard-podium">
+          <Podium list={list.slice(0, 3)} size="l" value={(p) => <Led value={p.balance} />} />
+          <div className="tvboard-roles">
+            {kingP && (
+              <p>
+                👑 <b>{kingP.name}</b> הוא המלך: בוחר מי מתמודד באתגר הבא
+              </p>
+            )}
+            {lastP && (
+              <p>
+                🍋 <b>{lastP.name}</b> הוא השקד המר: הגלגל אוהב אותו
+              </p>
+            )}
+          </div>
+        </section>
+        <ol className="tvboard-list">
+          {list.map((p, i) => (
+            <motion.li layout transition={{ type: "spring", stiffness: 110, damping: 20 }} key={p.id} className={cls("tvrow", i === 0 && "lead")}>
+              <span className="tvrow-rank num">{i + 1}</span>
+              <Avatar p={p} size={58} badge={p.id === king ? "👑" : p.id === last ? "🍋" : null} />
+              <span className="tvrow-name">
+                {p.name}
+                <small>{p.ticker}</small>
+              </span>
+              <Spark data={p.spark} w={170} h={46} />
+              <span className="tvrow-bal">
+                <Led value={p.balance} />
+              </span>
+              <Change balance={p.balance} start={start} />
+            </motion.li>
+          ))}
+        </ol>
+      </div>
+    </div>
+  );
+}
+
+/* ---------------- night bets ---------------- */
+
+export function NightScreen({ view }: { view: ClientView }) {
+  const people = byId(view.pub.players);
+  const list = view.pub.night;
+  return (
+    <div className="tvnight">
+      <header className="tvnight-head">
+        <h1>🌙 הימורי הלילה</h1>
+        <p>פתוחים כל הלילה בטלפון, בלשונית בורסה. הקופה מתחלקת בין מי שצדק.</p>
+      </header>
+      {!list.length && <div className="tv-banner">המנחה עוד לא פתח הימורי לילה</div>}
+      <div className={cls("night-grid", list.length > 4 && "dense")}>
+        {list.map((r) => {
+          const ordered = [...r.options].sort(
+            (a, b) => (r.stats.find((s) => s.optionId === b.id)?.total ?? 0) - (r.stats.find((s) => s.optionId === a.id)?.total ?? 0),
+          );
+          return (
+            <div key={r.id} className={cls("ncard", r.status)}>
+              <div className="ncard-head">
+                <span className="ncard-emoji" aria-hidden="true">
+                  {r.emoji}
+                </span>
+                <b>{r.title}</b>
+              </div>
+              <div className="ncard-pot">
+                <Money n={potOf(r)} size={24} />
+                <span>{r.status === "resolved" ? "הוכרע" : r.status === "closed" ? "נסגר" : `${r.bettors.length} הימרו`}</span>
+              </div>
+              <ul className="ncard-opts">
+                {ordered.slice(0, list.length > 4 ? 5 : 8).map((o) => {
+                  const st = r.stats.find((s) => s.optionId === o.id);
+                  const p = o.playerId ? people[o.playerId] : undefined;
+                  return (
+                    <li key={o.id} className={cls(r.winnerId === o.id && "win", r.status === "resolved" && r.winnerId !== o.id && "lose")}>
+                      {p && <Avatar p={p} size={30} />}
+                      <span className="ncard-label">{o.label}</span>
+                      <span className="ncard-x">{fmtX(multiplier(r, o.id))}</span>
+                      <span className="ncard-bar">
+                        <span style={{ transform: `scaleX(${r.staked ? (st?.total ?? 0) / r.staked : 0})` }} />
+                      </span>
+                    </li>
+                  );
+                })}
+                {list.length > 4 && ordered.length > 5 && <li className="ncard-more">ועוד {ordered.length - 5} אפשרויות</li>}
+              </ul>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -346,19 +438,22 @@ export function RevealScreen({ view }: { view: ClientView }) {
               transition={{ delay: 0.4 + i * 0.45, duration: 0.7, ease: [0.2, 0.8, 0.2, 1] }}
             >
               <div className="reveal-head">
-                <Avatar p={p} size={60} />
+                <Avatar p={p} size={56} />
                 <b>{p.name}</b>
                 <span className="reveal-score num">
-                  {done}/{e.missions.length}
+                  {done}/{e.missions.filter((m) => m.status !== "burned").length}
                 </span>
               </div>
               <ul>
                 {e.missions.map((m, j) => (
                   <li key={j} className={m.status}>
                     <span className="mark" aria-hidden="true">
-                      {m.status === "done" ? "✓" : "✗"}
+                      {m.status === "done" ? "✓" : m.status === "burned" ? "🔥" : "✗"}
                     </span>
-                    <span>{m.text}</span>
+                    <span>
+                      {m.text}
+                      {m.status === "burned" && m.caughtBy && <em> (נתפס ע״י {people[m.caughtBy]?.name})</em>}
+                    </span>
                   </li>
                 ))}
               </ul>
@@ -370,51 +465,116 @@ export function RevealScreen({ view }: { view: ClientView }) {
   );
 }
 
-export function WinnerScreen({ view }: { view: ClientView }) {
-  const [first, second, third] = ranked(view.pub.players);
-  const { currency } = view.pub.settings;
+export function AwardsScreen({ view }: { view: ClientView }) {
+  const steps = awardSteps(view);
+  const idx = Math.min(view.pub.tv.step, steps.length - 1);
+  const step = steps[idx];
+  const people = byId(view.pub.players);
+
   useEffect(() => {
-    sfx.fanfare();
-    burst("big");
-    const id = window.setInterval(() => burst("win"), 5000);
-    return () => window.clearInterval(id);
-  }, []);
+    if (step.kind === "final") {
+      sfx.fanfare();
+      burst("big");
+    } else if (step.kind === "award" || step.kind === "podium") {
+      sfx.drumroll(1);
+      const id = window.setTimeout(() => burst("win"), 1100);
+      return () => window.clearTimeout(id);
+    } else if (step.kind === "punish") sfx.gotcha();
+  }, [idx]); // eslint-disable-line react-hooks/exhaustive-deps
+
   return (
-    <div className="tvwin">
-      <Marquee size="m" lights />
-      <motion.h1 className="tvwin-title" initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }}>
-        מלך השקדים של הלילה
-      </motion.h1>
-      <div className="podium" dir="ltr">
-        {second && <Podium p={second} place={2} currency={currency} delay={1.2} />}
-        {first && <Podium p={first} place={1} currency={currency} delay={2} />}
-        {third && <Podium p={third} place={3} currency={currency} delay={0.6} />}
-      </div>
+    <div className="tvawards">
+      <AnimatePresence mode="wait">
+        <motion.div key={idx} className="award-stage" initial={{ opacity: 0, scale: 0.94 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 1.04 }} transition={{ duration: 0.5 }}>
+          <AwardView step={step} people={people} view={view} />
+        </motion.div>
+      </AnimatePresence>
+      <span className="award-progress num">
+        {idx + 1}/{steps.length}
+      </span>
     </div>
   );
 }
 
-function Podium({ p, place, currency, delay }: { p: PlayerPub; place: number; currency: string; delay: number }) {
-  const big = place === 1;
+function AwardView({ step, people, view }: { step: AwardStep; people: Record<string, PlayerPub>; view: ClientView }) {
+  if (step.kind === "title")
+    return (
+      <div className="award-title">
+        <Marquee size="l" lights />
+        <h1>🏆 טקס פרסי השקד הזהב</h1>
+        <p>הרגע שכולם חיכו לו. מי עבד על מי, מי הימר נכון, ומי שותה.</p>
+      </div>
+    );
+  if (step.kind === "award")
+    return (
+      <div className="award-card">
+        <span className="award-emoji" aria-hidden="true">
+          {step.emoji}
+        </span>
+        <h1>{step.title}</h1>
+        <div className="award-winners">
+          {step.ids.map((id, i) =>
+            people[id] ? (
+              <motion.span key={id} className="award-person" initial={{ scale: 0, rotate: -8 }} animate={{ scale: 1, rotate: 0 }} transition={{ delay: 1 + i * 0.2, type: "spring", stiffness: 220, damping: 14 }}>
+                <Avatar p={people[id]} size={220} />
+                <b>{people[id].name}</b>
+              </motion.span>
+            ) : null,
+          )}
+        </div>
+        <motion.p className="award-desc" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 1.4 }}>
+          {step.desc}
+        </motion.p>
+      </div>
+    );
+  if (step.kind === "podium")
+    return (
+      <div className="award-card">
+        <h1>
+          {step.emoji} {step.title}
+        </h1>
+        <motion.div initial={{ opacity: 0, y: 60 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 1, type: "spring", stiffness: 120, damping: 16 }}>
+          <Podium list={step.ids.map((id) => people[id]).filter((p): p is PlayerPub => !!p)} size="l" value={(p) => <span className="award-value">{step.values[p.id]}</span>} />
+        </motion.div>
+      </div>
+    );
+  if (step.kind === "final") return <WinnerScreen view={view} embedded />;
+  const loser = step.id ? people[step.id] : undefined;
   return (
-    <motion.div
-      className={cls("podium-step", `p${place}`)}
-      initial={{ opacity: 0, y: 80 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ delay, type: "spring", stiffness: 120, damping: 14 }}
-      dir="rtl"
-    >
-      {big && (
-        <span className="crown" aria-hidden="true">
-          👑
+    <div className="award-card">
+      <span className="award-emoji" aria-hidden="true">
+        🍋
+      </span>
+      <h1>השקד המר של הלילה</h1>
+      {loser && (
+        <span className="award-person">
+          <Avatar p={loser} size={240} />
+          <b>{loser.name}</b>
         </span>
       )}
-      <Avatar p={p} size={big ? 250 : 150} />
-      <span className="podium-name">{p.name}</span>
-      <span className="podium-bal">
-        <Led value={p.balance} /> <small>{currency}</small>
-      </span>
-      <span className="podium-block num">{place}</span>
-    </motion.div>
+      <p className="award-desc">מקום אחרון. עכשיו מסובבים את גלגל העונשים.</p>
+    </div>
+  );
+}
+
+export function WinnerScreen({ view, embedded }: { view: ClientView; embedded?: boolean }) {
+  const list = ranked(view.pub.players);
+  useEffect(() => {
+    if (embedded) return;
+    sfx.fanfare();
+    burst("big");
+    const id = window.setInterval(() => burst("win"), 5000);
+    return () => window.clearInterval(id);
+  }, [embedded]);
+  return (
+    <div className={cls("tvwin", embedded && "embedded")}>
+      <Marquee size="m" lights />
+      <motion.h1 className="tvwin-title" initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }}>
+        מלך השקדים של הלילה
+      </motion.h1>
+      <motion.div className="tvwin-podium" initial={{ opacity: 0, y: 80 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.8, type: "spring", stiffness: 110, damping: 15 }}>
+        <Podium list={list.slice(0, 3)} size="l" value={(p) => <Led value={p.balance} />} />
+      </motion.div>
+    </div>
   );
 }

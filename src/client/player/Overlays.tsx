@@ -1,13 +1,13 @@
 import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useRef, useState } from "react";
-import type { ClientView } from "../../shared/types";
+import type { ClientView, RoundPub } from "../../shared/types";
 import { cls, lsGet, lsSet } from "../lib";
 import { sfx } from "../sound";
 import { Money, burst, toast } from "../ui";
 
 interface Flash {
-  kind: "win" | "lose" | "mission";
-  amount: number;
+  kind: "win" | "lose" | "mission" | "drink" | "caught";
+  amount?: number;
   title: string;
   sub: string;
 }
@@ -16,7 +16,7 @@ function useFlash() {
   const [flash, setFlash] = useState<Flash | null>(null);
   useEffect(() => {
     if (!flash) return;
-    const id = window.setTimeout(() => setFlash(null), 4600);
+    const id = window.setTimeout(() => setFlash(null), flash.kind === "drink" ? 7000 : 4800);
     return () => window.clearTimeout(id);
   }, [flash]);
   return [flash, setFlash] as const;
@@ -27,14 +27,9 @@ function FlashView({ flash, onClose }: { flash: Flash | null; onClose: () => voi
     <AnimatePresence>
       {flash && (
         <motion.div className={cls("flash", flash.kind)} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={onClose} role="alert">
-          <motion.div
-            className="flash-card"
-            initial={{ scale: 0.6, rotate: -4 }}
-            animate={{ scale: 1, rotate: 0 }}
-            transition={{ type: "spring", stiffness: 300, damping: 16 }}
-          >
+          <motion.div className="flash-card" initial={{ scale: 0.6, rotate: -4 }} animate={{ scale: 1, rotate: 0 }} transition={{ type: "spring", stiffness: 300, damping: 16 }}>
             <div className="flash-title">{flash.title}</div>
-            <Money n={flash.amount} sign size={40} className="flash-amount" />
+            {flash.amount !== undefined && <Money n={flash.amount} sign size={40} className="flash-amount" />}
             <div className="flash-sub">{flash.sub}</div>
           </motion.div>
         </motion.div>
@@ -43,23 +38,28 @@ function FlashView({ flash, onClose }: { flash: Flash | null; onClose: () => voi
   );
 }
 
-/** Once per resolved round: the big win / loss moment on your phone. */
+/** Once per settled round you bet on (challenge or night): the big win / loss moment. */
 export function ResultOverlay({ view, meId }: { view: ClientView; meId: string }) {
   const [flash, setFlash] = useFlash();
-  const r = view.pub.round;
-  const myBet = view.me?.bet;
-  const key = r && r.status === "resolved" && myBet ? `sgn.seen.${r.id}.${r.resolvedAt}.${meId}` : null;
+  const rounds: RoundPub[] = [...(view.pub.round ? [view.pub.round] : []), ...view.pub.night];
+  const due = rounds.find((r) => r.status === "resolved" && view.me?.bets[r.id] && !lsGet(`sgn.seen.${r.id}.${r.resolvedAt}.${meId}`));
+  const key = due ? `sgn.seen.${due.id}.${due.resolvedAt}.${meId}` : null;
 
   useEffect(() => {
-    if (!key || !r || !myBet || lsGet(key)) return;
+    if (!key || !due) return;
     lsSet(key, "1");
-    const won = myBet.optionId === r.winnerId;
-    const label = r.options.find((o) => o.id === r.winnerId)?.label ?? "";
+    const label = due.options.find((o) => o.id === due.winnerId)?.label ?? "";
+    if (due.refunded) {
+      toast(`${due.emoji} אף אחד לא צדק ב״${due.title}״. ההימור חזר אליך.`, "info", 5000);
+      return;
+    }
+    const delta = due.results?.find((x) => x.playerId === meId)?.delta ?? 0;
+    const won = view.me?.bets[due.id]?.optionId === due.winnerId;
     setFlash({
       kind: won ? "win" : "lose",
-      amount: won ? myBet.amount : -myBet.amount,
+      amount: delta,
       title: won ? "צדקת! 🤑" : "פספוס 😬",
-      sub: `התוצאה: ״${label}״`,
+      sub: `${due.kind === "night" ? "🌙 " : ""}התוצאה: ״${label}״`,
     });
     navigator.vibrate?.(won ? [40, 60, 40, 60, 80] : [220]);
     if (won) {
@@ -72,30 +72,53 @@ export function ResultOverlay({ view, meId }: { view: ClientView; meId: string }
   return <FlashView flash={flash} onClose={() => setFlash(null)} />;
 }
 
-/** Quiet celebration when the host approves one of your missions; a nudge when one is turned down. */
+/** Someone burned one of your missions. */
 export function MissionWatcher({ view }: { view: ClientView }) {
   const [flash, setFlash] = useFlash();
-  const prev = useRef<Map<string, string> | null>(null);
-  const missions = view.me?.missions;
-
+  const count = view.me?.burned.length ?? 0;
+  const prev = useRef<number | null>(null);
   useEffect(() => {
-    if (!missions) return;
-    const before = prev.current;
-    prev.current = new Map(missions.map((m) => [m.id, m.status]));
-    for (const m of missions) {
-      const seenKey = `sgn.mdone.${m.id}`;
-      if (m.status === "done" && !lsGet(seenKey)) {
-        lsSet(seenKey, "1");
-        if (before) {
-          setFlash({ kind: "mission", amount: m.reward, title: "משימה אושרה 🤫", sub: "אף אחד לא יודע. בינתיים." });
-          sfx.secret();
-          burst("coins");
-          navigator.vibrate?.([30, 50, 30]);
-        }
-      }
-      if (before?.get(m.id) === "pending" && m.status === "open") toast("המנחה לא אישר את המשימה. אפשר לנסות שוב 💪", "info", 5000);
+    if (prev.current !== null && count > prev.current) {
+      const b = view.me!.burned[view.me!.burned.length - 1];
+      const by = view.pub.players.find((p) => p.id === b.by)?.name ?? "מישהו";
+      setFlash({ kind: "caught", title: "🔥 נתפסת!", sub: `${by} תפס אותך על חם והמשימה נשרפה. קיבלת משימה חדשה במקומה.` });
+      sfx.gotcha();
+      navigator.vibrate?.([200, 80, 200]);
     }
-  }, [missions]);
+    prev.current = count;
+  }, [count]); // eslint-disable-line react-hooks/exhaustive-deps
+  return <FlashView flash={flash} onClose={() => setFlash(null)} />;
+}
 
+/** Public happenings as toasts; the drinking wheel lands on you as a full-screen moment. */
+export function FeedWatcher({ view, meId }: { view: ClientView; meId: string }) {
+  const [flash, setFlash] = useFlash();
+  const seen = useRef<Set<string> | null>(null);
+  const feed = view.pub.feed;
+  useEffect(() => {
+    if (!seen.current) {
+      seen.current = new Set(feed.map((e) => e.id));
+      return;
+    }
+    const mine = new Set(view.me?.missions.map((m) => m.id) ?? []);
+    for (const e of feed) {
+      if (seen.current.has(e.id)) continue;
+      seen.current.add(e.id);
+      if (e.kind === "mission") {
+        if (!mine.has(e.ref ?? "")) toast(e.text, "info", 4500);
+      } else if (e.kind === "wheel" && e.players.includes(meId)) {
+        setFlash({ kind: "drink", title: "🍺 זה עליך!", sub: e.text.replace(/^🎡 /, "") });
+        sfx.ding();
+        navigator.vibrate?.([120, 60, 120, 60, 300]);
+      } else if (e.kind === "caught" && e.players[0] === meId) {
+        setFlash({ kind: "win", amount: view.pub.settings.catchReward, title: "🕵️ צדקת!", sub: "תפסת אותו על חם. המשימה שלו נשרפה." });
+        sfx.win();
+      } else if (e.kind === "caught" && e.players[1] === meId) {
+        // the burned-mission flash covers this
+      } else {
+        toast(e.text, e.kind === "miss" && e.players[0] === meId ? "err" : "info", 5500);
+      }
+    }
+  }, [feed]); // eslint-disable-line react-hooks/exhaustive-deps
   return <FlashView flash={flash} onClose={() => setFlash(null)} />;
 }

@@ -221,6 +221,7 @@
 
 .join-name {
   font-family: var(--display);
+  font-weight: 800;
   font-size: 1.25rem;
   line-height: 1.1;
 }
@@ -627,7 +628,7 @@
 
 .ticket-main strong {
   font-family: var(--display);
-  font-weight: 400;
+  font-weight: 800;
   font-size: 1.45rem;
 }
 
@@ -678,6 +679,7 @@
   border-radius: 10px;
   color: var(--down);
   font-family: var(--display);
+  font-weight: 800;
   font-size: 1.6rem;
   transform: rotate(-5deg);
 }
@@ -689,7 +691,7 @@
 
 .result-line strong {
   font-family: var(--display);
-  font-weight: 400;
+  font-weight: 800;
   font-size: 1.45rem;
   color: var(--gold-hi);
 }
@@ -699,6 +701,7 @@
   justify-items: center;
   gap: 4px;
   font-family: var(--display);
+  font-weight: 800;
   font-size: 1.6rem;
 }
 
@@ -875,6 +878,7 @@
   border-radius: 8px;
   color: #1e7a4c;
   font-family: var(--display);
+  font-weight: 800;
   font-size: 1.3rem;
   transform: rotate(-10deg);
   pointer-events: none;
@@ -974,6 +978,7 @@
 
 .flash-title {
   font-family: var(--display);
+  font-weight: 800;
   font-size: 2rem;
 }
 
@@ -1020,4 +1025,274 @@
 
 .profile .btn {
   width: 100%;
+}
+
+/* ---------- the pot & live odds ---------- */
+
+.pot-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 20px;
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--almond);
+  background: rgba(0, 0, 0, 0.3);
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+
+.opt-odds {
+  font-family: var(--led);
+  font-weight: 900;
+  font-size: 1.05rem;
+  color: var(--gold-hi);
+  direction: ltr;
+}
+
+.options.many .opt-odds {
+  font-size: 0.9rem;
+}
+
+.payout-line {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  font-weight: 700;
+  background: rgba(92, 242, 155, 0.08);
+  box-shadow: inset 0 0 0 1px rgba(92, 242, 155, 0.3);
+}
+
+.payout-line .money {
+  color: var(--up);
+}
+
+.payout-x {
+  font-weight: 500;
+  color: var(--almond-dim);
+  direction: ltr;
+}
+
+.ticket-payout {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 700;
+  color: #1e7a4c;
+}
+
+/* ---------- night bets: moonlit, so they never get mixed up with the live challenge ---------- */
+
+.night {
+  display: grid;
+  gap: 10px;
+  margin-top: 6px;
+}
+
+.night-head h2 {
+  font-size: 1.4rem;
+  color: #c8d4ff;
+}
+
+.night-head p {
+  font-size: 0.92rem;
+  color: var(--almond-dim);
+}
+
+.night-card {
+  overflow: hidden;
+  border-radius: 16px;
+  background: linear-gradient(180deg, rgba(26, 38, 78, 0.75), rgba(12, 20, 44, 0.8));
+  box-shadow: inset 0 0 0 1px rgba(150, 170, 255, 0.25);
+}
+
+.night-card.has-bet {
+  box-shadow: inset 0 0 0 2px rgba(233, 185, 73, 0.6);
+}
+
+.night-card.resolved {
+  opacity: 0.8;
+}
+
+.night-face {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 34px 1fr auto;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 0;
+  background: none;
+  color: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+
+.night-emoji {
+  font-size: 28px;
+  line-height: 1;
+}
+
+.night-text {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.night-text b {
+  line-height: 1.3;
+}
+
+.night-text small {
+  font-size: 0.82rem;
+  color: var(--almond-dim);
+}
+
+.night-pot {
+  font-size: 0.85rem;
+}
+
+.night-note {
+  padding: 0 14px;
+  font-size: 0.9rem;
+  color: var(--almond-dim);
+}
+
+.night-body {
+  display: grid;
+  gap: 12px;
+  padding: 12px 14px 16px;
+}
+
+/* ---------- bailout, burned, catching ---------- */
+
+.bailout {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 10px 14px 0;
+  padding: 10px 12px;
+  border-radius: 14px;
+  font-size: 0.92rem;
+  font-weight: 500;
+  background: rgba(255, 114, 114, 0.12);
+  box-shadow: inset 0 0 0 1px rgba(255, 114, 114, 0.4);
+}
+
+.bailout span {
+  flex: 1;
+}
+
+.burned {
+  display: grid;
+  gap: 6px;
+  padding: 14px 16px;
+}
+
+.burned h3 {
+  font-size: 1.05rem;
+  color: #ffb38a;
+}
+
+.burned p {
+  font-size: 0.9rem;
+}
+
+.catch {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+}
+
+.catch-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.catch-icon {
+  font-size: 34px;
+  line-height: 1;
+}
+
+.catch-head h3 {
+  font-size: 1.15rem;
+  color: var(--gold-hi);
+}
+
+.catch-head p {
+  font-size: 0.9rem;
+  color: var(--almond-dim);
+}
+
+.catch-head b {
+  color: var(--almond);
+}
+
+.catch-status {
+  font-weight: 700;
+}
+
+.suspects {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+}
+
+.suspect {
+  display: grid;
+  justify-items: center;
+  gap: 4px;
+  padding: 8px 4px;
+  border: 0;
+  border-radius: 14px;
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--almond);
+  background: rgba(0, 0, 0, 0.25);
+  box-shadow: inset 0 0 0 1px var(--line-soft);
+  cursor: pointer;
+}
+
+.suspect.on {
+  color: var(--gold-hi);
+  background: rgba(233, 185, 73, 0.18);
+  box-shadow: inset 0 0 0 2px var(--gold);
+}
+
+.board-podium {
+  overflow: hidden;
+  padding: 22px 12px 0;
+}
+
+.board-rules {
+  font-size: 0.85rem;
+  text-align: center;
+  color: var(--almond-dim);
+}
+
+.flash.drink .flash-card {
+  background: linear-gradient(180deg, #4a2a12, #2a1608);
+  box-shadow:
+    inset 0 0 0 2px var(--gold),
+    0 30px 80px rgba(0, 0, 0, 0.6);
+}
+
+.flash.drink .flash-title {
+  font-size: 2.6rem;
+}
+
+.flash.caught .flash-card {
+  background: linear-gradient(180deg, #3b1a12, #22100a);
+  box-shadow:
+    inset 0 0 0 2px #ff8a3d,
+    0 30px 80px rgba(0, 0, 0, 0.6);
+}
+
+.qcard-top .pot-chip {
+  margin-inline-start: auto;
+  margin-inline-end: 10px;
 }

@@ -195,31 +195,54 @@ function MoneyForm({ p, currency, run, onDone }: { p: PlayerPub; currency: strin
 
 function Settings({ view, run }: { view: ClientView; run: Run }) {
   const s = view.pub.settings;
-  const [currency, setCurrency] = useState(s.currency);
-  const [start, setStart] = useState(s.startBalance);
+  const [f, setF] = useState({
+    currency: s.currency,
+    startBalance: s.startBalance,
+    bankBonus: s.bankBonus,
+    catchReward: s.catchReward,
+    falsePenalty: s.falsePenalty,
+    bailoutAmount: s.bailoutAmount,
+  });
+  const num = (k: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement>) => setF((x) => ({ ...x, [k]: Number(e.target.value) }));
   return (
     <div className="settings felt">
       <h3>הגדרות</h3>
       <div className="form-row">
         <label className="field">
           <span>שם המטבע</span>
-          <input value={currency} onChange={(e) => setCurrency(e.target.value)} maxLength={16} />
+          <input value={f.currency} onChange={(e) => setF((x) => ({ ...x, currency: e.target.value }))} maxLength={16} />
         </label>
         <label className="field">
           <span>יתרת פתיחה</span>
-          <input type="number" inputMode="numeric" value={start} onChange={(e) => setStart(Number(e.target.value))} />
+          <input type="number" inputMode="numeric" value={f.startBalance} onChange={num("startBalance")} />
+        </label>
+        <label className="field">
+          <span>בונוס הבנק לאתגר חדש</span>
+          <input type="number" inputMode="numeric" value={f.bankBonus} onChange={num("bankBonus")} />
+        </label>
+        <label className="field">
+          <span>פרס על תפיסה</span>
+          <input type="number" inputMode="numeric" value={f.catchReward} onChange={num("catchReward")} />
+        </label>
+        <label className="field">
+          <span>קנס על האשמת שווא</span>
+          <input type="number" inputMode="numeric" value={f.falsePenalty} onChange={num("falsePenalty")} />
+        </label>
+        <label className="field">
+          <span>סכום חילוץ</span>
+          <input type="number" inputMode="numeric" value={f.bailoutAmount} onChange={num("bailoutAmount")} />
         </label>
       </div>
       <label className="check">
         <input type="checkbox" checked={s.allowJoinNew} onChange={(e) => run("saveSettings", { settings: { allowJoinNew: e.target.checked } }, "נשמר")} />
         <span>לאפשר הצטרפות עם שם שלא ברשימה</span>
       </label>
-      <button type="button" className="btn btn-ghost btn-s" onClick={() => run("saveSettings", { settings: { currency, startBalance: start } }, "ההגדרות נשמרו")}>
+      <button type="button" className="btn btn-ghost btn-s" onClick={() => run("saveSettings", { settings: f }, "ההגדרות נשמרו")}>
         שמירת הגדרות
       </button>
 
       <h3 className="danger-title">איפוס</h3>
-      <p className="muted">לפני המסיבה: אחרי הבדיקות, אפסו כדי שכולם יתחילו מ־{fmt(s.startBalance)}. הסיבובים והמשימות שכתבתם נשמרים.</p>
+      <p className="muted">לפני המסיבה: אחרי הבדיקות, אפסו כדי שכולם יתחילו מ־{fmt(s.startBalance)}. הסיבובים והמשימות שכתבתם נשמרים, והמשימות יחולקו מחדש כשכל אחד ייכנס.</p>
       <div className="row-actions">
         <button
           type="button"
@@ -228,12 +251,12 @@ function Settings({ view, run }: { view: ClientView; run: Run }) {
             if (
               await ask({
                 title: "לאפס את המשחק?",
-                body: "כל ההימורים והיתרות יתאפסו, כל הסיבובים יחזרו לרשימה והמשימות יחזרו להיות פתוחות. כל המכשירים ינותקו ויצטרכו לבחור שם מחדש.",
+                body: "כל ההימורים והיתרות יתאפסו, הסיבובים יחזרו לרשימה, והמשימות יחולקו מחדש. כל המכשירים ינותקו ויצטרכו לבחור שם מחדש.",
                 ok: "איפוס",
                 danger: true,
               })
             )
-              await run("resetGame", { unclaim: true }, "המשחק אופס");
+              await run("resetGame", { unclaim: true, undeal: true }, "המשחק אופס");
           }}
         >
           איפוס משחק

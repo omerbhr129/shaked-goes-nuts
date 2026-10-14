@@ -5,48 +5,57 @@ import { Avatar, Money, Sheet, ask } from "../ui";
 import type { Run } from "./AdminApp";
 
 const AUD: Record<Audience, string> = { all: "לכולם", friends: "לחברים (לא לחתן)", groom: "רק לחתן" };
-const STATUS_ICON: Record<Mission["status"], string> = { open: "✉️", pending: "⏳", done: "✅" };
+const STATUS_ICON: Record<Mission["status"], string> = { open: "✉️", pending: "⏳", done: "✅", burned: "🔥" };
+
+const ago = (t: number | null) => {
+  if (!t) return "";
+  const m = Math.round((Date.now() - t) / 60000);
+  return m < 1 ? "עכשיו" : m < 60 ? `לפני ${m} דק׳` : `לפני ${Math.floor(m / 60)} שע׳`;
+};
 
 export function MissionsTab({ view, run }: { view: ClientView; run: Run }) {
-  const missions = view.admin!.missions;
+  const { missions, accusations } = view.admin!;
   const players = view.pub.players;
   const people = Object.fromEntries(players.map((p) => [p.id, p])) as Record<string, PlayerPub>;
-  const pending = missions.filter((m) => m.status === "pending");
   const pool = missions.filter((m) => !m.assignedTo);
-  const dealt = missions.some((m) => m.assignedTo);
+  const recent = missions
+    .filter((m) => m.status === "done")
+    .sort((a, b) => (b.doneAt ?? 0) - (a.doneAt ?? 0))
+    .slice(0, 8);
+  const decided = accusations.filter((a) => a.status !== "pending").slice(0, 6);
   const [edit, setEdit] = useState<Mission | "new" | null>(null);
   const [assignFor, setAssignFor] = useState<PlayerPub | null>(null);
 
-  const deal = async () => {
-    const ok = await ask({
-      title: "לחלק משימות?",
-      body: "כל מי שיש לו פחות מ־3 משימות יקבל משימות אקראיות מהמאגר (משימות על החתן לא יגיעו לחתן). המשימות יופיעו מיד בטלפונים.",
-      ok: "חלוקה",
-    });
-    if (ok) await run("dealMissions", {}, "המשימות חולקו");
-  };
-
   return (
     <section className="stack">
-      {pending.length > 0 && (
-        <div className="pending felt">
-          <h2 className="section-title">ממתינות לאישור</h2>
-          {pending.map((m) => {
+      <p className="muted">
+        כל מי שנכנס מקבל 3 משימות אוטומטית. מי שמסמן ״ביצעתי״ מקבל את השקדים מיד. כאן אפשר לבטל סימון שנראה לכם חשוד, להחליף משימות ולכתוב חדשות.
+      </p>
+
+      {recent.length > 0 && (
+        <div className="felt recent">
+          <h2 className="section-title">בוצעו לאחרונה</h2>
+          {recent.map((m) => {
             const p = m.assignedTo ? people[m.assignedTo] : undefined;
             return (
-              <div key={m.id} className="pending-item">
-                <div className="pending-who">
-                  {p && <Avatar p={p} size={36} />}
-                  <b>{p?.name}</b>
-                  <Money n={m.reward} size={16} />
-                </div>
-                <p>{m.text}</p>
-                <div className="row-actions">
-                  <button type="button" className="btn btn-gold" onClick={() => run("reviewMission", { missionId: m.id, approve: true }, `אושר: ${p?.name ?? ""} קיבל ${m.reward}`)}>
-                    ✓ אישור
-                  </button>
-                  <button type="button" className="btn btn-ghost" onClick={() => run("reviewMission", { missionId: m.id, approve: false }, "הבקשה נדחתה")}>
-                    ✗ דחייה
+              <div key={m.id} className="mrow done">
+                <span className="mrow-icon" aria-hidden="true">
+                  {p ? <Avatar p={p} size={28} /> : "✅"}
+                </span>
+                <span className="mrow-text">
+                  <b>{p?.name}</b>: {m.text} <small className="muted">{ago(m.doneAt)}</small>
+                </span>
+                <Money n={m.reward} size={14} />
+                <div className="mrow-actions">
+                  <button
+                    type="button"
+                    className="mini"
+                    onClick={async () => {
+                      if (await ask({ title: "לבטל את הסימון?", body: `${p?.name} יאבד ${m.reward} והמשימה תחזור להיות פתוחה.`, ok: "ביטול הסימון", danger: true }))
+                        await run("reviewMission", { missionId: m.id, approve: false }, "הסימון בוטל");
+                    }}
+                  >
+                    לא מאשר
                   </button>
                 </div>
               </div>
@@ -55,24 +64,35 @@ export function MissionsTab({ view, run }: { view: ClientView; run: Run }) {
         </div>
       )}
 
+      {decided.length > 0 && (
+        <div className="felt recent">
+          <h2 className="section-title">🕵️ תפיסות</h2>
+          {decided.map((a) => (
+            <p key={a.id} className="catch-log">
+              {a.status === "right" ? "✅" : "❌"} <b>{people[a.by]?.name}</b> נגד <b>{people[a.suspect]?.name}</b>: ״{a.text}״
+            </p>
+          ))}
+        </div>
+      )}
+
       <div className="section-head">
         <h2 className="section-title">משימות לפי שחקן</h2>
-        <button type="button" className="btn btn-gold btn-s" onClick={deal}>
-          {dealt ? "השלמת חלוקה" : "חלוקת משימות"}
+        <button type="button" className="btn btn-ghost btn-s" onClick={() => run("dealMissions", {}, "חולקו")}>
+          השלמת חלוקה
         </button>
       </div>
-      {!dealt && <p className="muted">עוד לא חולקו משימות. לחיצה על ״חלוקת משימות״ תיתן לכל אחד 3 משימות אקראיות מהמאגר, ואפשר להחליף כל אחת אחר כך.</p>}
 
       {players.map((p) => {
         const mine = missions.filter((m) => m.assignedTo === p.id);
-        if (!mine.length && !dealt) return null;
+        if (!mine.length) return null;
         return (
           <div key={p.id} className="mp felt">
             <div className="mp-head">
               <Avatar p={p} size={36} />
               <b>{p.name}</b>
               <span className="muted">
-                {mine.filter((m) => m.status === "done").length} מתוך {mine.length} בוצעו
+                {mine.filter((m) => m.status === "done").length} בוצעו
+                {mine.some((m) => m.status === "burned") && ` · ${mine.filter((m) => m.status === "burned").length} נשרפו`}
               </span>
               <button type="button" className="link-btn" onClick={() => setAssignFor(p)}>
                 + הוספה
@@ -83,32 +103,37 @@ export function MissionsTab({ view, run }: { view: ClientView; run: Run }) {
                 <span className="mrow-icon" aria-hidden="true">
                   {STATUS_ICON[m.status]}
                 </span>
-                <span className="mrow-text">{m.text}</span>
+                <span className="mrow-text">
+                  {m.text}
+                  {m.status === "burned" && m.caughtBy && <small className="muted"> · נתפס ע״י {people[m.caughtBy]?.name}</small>}
+                </span>
                 <Money n={m.reward} size={14} />
-                <div className="mrow-actions">
-                  {m.status !== "done" && (
-                    <button type="button" className="mini" onClick={() => run("swapMission", { missionId: m.id }, "המשימה הוחלפה")}>
-                      החלפה
+                {m.status !== "burned" && (
+                  <div className="mrow-actions">
+                    {m.status === "open" && (
+                      <button type="button" className="mini" onClick={() => run("swapMission", { missionId: m.id }, "המשימה הוחלפה")}>
+                        החלפה
+                      </button>
+                    )}
+                    {m.status === "open" ? (
+                      <button type="button" className="mini" onClick={() => run("reviewMission", { missionId: m.id, approve: true }, "סומנה כבוצעה")}>
+                        סימון כבוצעה
+                      </button>
+                    ) : (
+                      <button type="button" className="mini" onClick={() => run("reviewMission", { missionId: m.id, approve: false }, "הסימון בוטל")}>
+                        ביטול סימון
+                      </button>
+                    )}
+                    <button type="button" className="mini" onClick={() => setEdit(m)}>
+                      עריכה
                     </button>
-                  )}
-                  {m.status !== "done" ? (
-                    <button type="button" className="mini" onClick={() => run("reviewMission", { missionId: m.id, approve: true }, "סומנה כבוצעה")}>
-                      סימון כבוצעה
-                    </button>
-                  ) : (
-                    <button type="button" className="mini" onClick={() => run("reviewMission", { missionId: m.id, approve: false }, "האישור בוטל")}>
-                      ביטול אישור
-                    </button>
-                  )}
-                  <button type="button" className="mini" onClick={() => setEdit(m)}>
-                    עריכה
-                  </button>
-                  {m.status !== "done" && (
-                    <button type="button" className="mini" onClick={() => run("assignMission", { missionId: m.id, playerId: null }, "הוחזרה למאגר")}>
-                      למאגר
-                    </button>
-                  )}
-                </div>
+                    {m.status === "open" && (
+                      <button type="button" className="mini" onClick={() => run("assignMission", { missionId: m.id, playerId: null }, "הוחזרה למאגר")}>
+                        למאגר
+                      </button>
+                    )}
+                  </div>
+                )}
               </div>
             ))}
           </div>
@@ -223,7 +248,7 @@ function MissionForm({ value, players, run, onDone }: { value: Mission | null; p
       </label>
       <label className="field">
         <span>משויכת ל</span>
-        <select value={assignedTo} onChange={(e) => setAssignedTo(e.target.value)} disabled={value?.status === "done"}>
+        <select value={assignedTo} onChange={(e) => setAssignedTo(e.target.value)} disabled={value?.status === "done" || value?.status === "burned"}>
           <option value="">אף אחד (במאגר)</option>
           {players.map((p) => (
             <option key={p.id} value={p.id}>

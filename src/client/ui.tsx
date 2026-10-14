@@ -1,6 +1,7 @@
 import confetti from "canvas-confetti";
 import { AnimatePresence, motion } from "motion/react";
 import { type ReactNode, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { createPortal } from "react-dom";
 import type { PlayerPub } from "../shared/types";
 import { cls, fmt, pct, photoOf, ranked, reducedMotion, signed } from "./lib";
 import type { ConnStatus } from "./net";
@@ -51,10 +52,10 @@ export function Money({ n, size = 18, sign = false, className }: { n: number; si
 
 type AvatarPerson = Pick<PlayerPub, "id" | "name" | "photo" | "isGroom">;
 
-export function Avatar({ p, size = 44, className }: { p: AvatarPerson; size?: number; className?: string }) {
+export function Avatar({ p, size = 44, className, badge }: { p: AvatarPerson; size?: number; className?: string; badge?: string | null }) {
   const src = photoOf(p);
   const [failed, setFailed] = useState<string | null>(null);
-  return (
+  const face = (
     <span
       className={cls("avatar", p.isGroom && "groom", className)}
       style={{ width: size, height: size, fontSize: Math.round(size * 0.44) }}
@@ -67,6 +68,37 @@ export function Avatar({ p, size = 44, className }: { p: AvatarPerson; size?: nu
         <img src={src} alt="" draggable={false} onError={() => setFailed(src)} />
       )}
     </span>
+  );
+  if (!badge) return face;
+  return (
+    <span className="avatar-wrap">
+      {face}
+      <span className="avatar-badge" style={{ fontSize: Math.max(14, Math.round(size * 0.36)) }} aria-hidden="true">
+        {badge}
+      </span>
+    </span>
+  );
+}
+
+/** Top three on steps: second, first, third. */
+export function Podium({ list, size = "m", value }: { list: PlayerPub[]; size?: "s" | "m" | "l"; value?: (p: PlayerPub) => ReactNode }) {
+  const [first, second, third] = list;
+  const dims = { s: [52, 68], m: [84, 112], l: [150, 210] }[size];
+  const step = (p: PlayerPub | undefined, place: number) =>
+    p && (
+      <div className={cls("pod", `pod-${place}`)} key={p.id} dir="rtl">
+        <Avatar p={p} size={place === 1 ? dims[1] : dims[0]} badge={place === 1 ? "👑" : null} />
+        <span className="pod-name">{p.name}</span>
+        <span className="pod-value">{value ? value(p) : <Money n={p.balance} size={size === "l" ? 26 : 15} />}</span>
+        <span className="pod-block num">{place}</span>
+      </div>
+    );
+  return (
+    <div className={cls("podium2", `podium2-${size}`)} dir="ltr">
+      {step(second, 2)}
+      {step(first, 1)}
+      {step(third, 3)}
+    </div>
   );
 }
 
@@ -234,7 +266,8 @@ export function Sheet({
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [open, onClose]);
-  return (
+  // portal: a sheet opened from a sticky, blurred header would otherwise be trapped inside it
+  return createPortal(
     <AnimatePresence>
       {open && (
         <motion.div className="sheet-backdrop" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={onClose}>
@@ -255,7 +288,8 @@ export function Sheet({
           </motion.div>
         </motion.div>
       )}
-    </AnimatePresence>
+    </AnimatePresence>,
+    document.body,
   );
 }
 

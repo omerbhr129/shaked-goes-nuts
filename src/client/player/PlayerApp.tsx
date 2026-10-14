@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { ClientView, PlayerPub } from "../../shared/types";
-import { cls, resizeImage } from "../lib";
+import { cls, fmt, kingAndLast, resizeImage } from "../lib";
 import { creds, useGame, type Game } from "../net";
 import { sfx } from "../sound";
 import { Avatar, Coin, ConnBanner, Led, Marquee, MuteButton, Sheet, ask, toast } from "../ui";
@@ -8,7 +8,7 @@ import { BetTab } from "./BetTab";
 import { BoardTab } from "./BoardTab";
 import { JoinScreen } from "./Join";
 import { MissionsTab } from "./MissionsTab";
-import { MissionWatcher, ResultOverlay } from "./Overlays";
+import { FeedWatcher, MissionWatcher, ResultOverlay } from "./Overlays";
 
 type Tab = "bet" | "missions" | "board";
 
@@ -21,7 +21,7 @@ export function PlayerApp() {
     if (view && !view.me && creds.token && status === "online") creds.token = null;
   }, [view, status]);
 
-  // A freshly opened round pulls everyone to the betting tab.
+  // A freshly opened challenge pulls everyone to the betting tab.
   const round = view?.pub.round;
   const openKey = round && round.status === "open" ? `${round.id}:${round.openedAt}` : null;
   const lastOpen = useRef(openKey);
@@ -39,13 +39,18 @@ export function PlayerApp() {
   const me = view.pub.players.find((p) => p.id === view.me!.id);
   if (!me) return <Splash />;
 
-  const needsBet = !!round && round.status === "open" && !view.me.bet && !round.noBet.includes(me.id);
+  const mine = view.me.bets;
+  const needsBet =
+    (!!round && round.status === "open" && !mine[round.id] && !round.noBet.includes(me.id)) ||
+    view.pub.night.some((r) => r.status === "open" && !mine[r.id] && !r.noBet.includes(me.id));
   const openMissions = view.me.missions.filter((m) => m.status === "open").length;
+  const { king } = kingAndLast(view.pub.players);
 
   return (
     <div className="phone">
       <ConnBanner status={status} />
-      <TopBar me={me} view={view} game={game} />
+      <TopBar me={me} view={view} game={game} isKing={king === me.id} />
+      {view.me.available < 100 && <BailoutBanner view={view} game={game} />}
       <main className="phone-main">
         {tab === "bet" && <BetTab game={game} view={view} me={me} />}
         {tab === "missions" && <MissionsTab game={game} view={view} />}
@@ -58,6 +63,7 @@ export function PlayerApp() {
       </nav>
       <ResultOverlay view={view} meId={me.id} />
       <MissionWatcher view={view} />
+      <FeedWatcher view={view} meId={me.id} />
     </div>
   );
 }
@@ -75,12 +81,12 @@ function TabButton({ on, onClick, icon, label, dot, count }: { on: boolean; onCl
   );
 }
 
-function TopBar({ me, view, game }: { me: PlayerPub; view: ClientView; game: Game }) {
+function TopBar({ me, view, game, isKing }: { me: PlayerPub; view: ClientView; game: Game; isKing: boolean }) {
   const [profile, setProfile] = useState(false);
   return (
     <header className="topbar">
       <button type="button" className="me-btn" onClick={() => setProfile(true)} aria-label="הפרופיל שלי">
-        <Avatar p={me} size={42} />
+        <Avatar p={me} size={42} badge={isKing ? "👑" : null} />
         <span className="me-name">{me.name}</span>
       </button>
       <div className="meter" aria-label={`יתרה: ${me.balance} ${view.pub.settings.currency}`}>
@@ -90,6 +96,41 @@ function TopBar({ me, view, game }: { me: PlayerPub; view: ClientView; game: Gam
       <MuteButton />
       <ProfileSheet open={profile} onClose={() => setProfile(false)} me={me} game={game} />
     </header>
+  );
+}
+
+function BailoutBanner({ view, game }: { view: ClientView; game: Game }) {
+  const { currency, bailoutAmount } = view.pub.settings;
+  const pending = view.me!.bailout?.status === "pending";
+  const [busy, setBusy] = useState(false);
+  return (
+    <div className="bailout" role="status">
+      <span>
+        {pending
+          ? "🆘 בקשת החילוץ אצל המנחה. תתכוננו לעונש קטן…"
+          : `🆘 נגמרו ה${currency}? אפשר לבקש חילוץ ממשלתי של ${fmt(bailoutAmount)}, בתמורה לעונש קטן.`}
+      </span>
+      {!pending && (
+        <button
+          type="button"
+          className="btn btn-gold btn-s"
+          disabled={busy}
+          onClick={async () => {
+            setBusy(true);
+            try {
+              await game.act("requestBailout");
+              toast("הבקשה נשלחה למנחה", "ok");
+            } catch (e) {
+              toast((e as Error).message, "err");
+            } finally {
+              setBusy(false);
+            }
+          }}
+        >
+          בקשת חילוץ
+        </button>
+      )}
+    </div>
   );
 }
 

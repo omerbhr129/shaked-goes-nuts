@@ -1,44 +1,54 @@
+import { AnimatePresence, motion } from "motion/react";
 import { type ReactNode, useEffect, useState } from "react";
 import type { ClientView, PlayerPub, RoundPub } from "../../shared/types";
-import { cls, fmt, mmss, ranked } from "../lib";
+import { cls, fmt, fmtX, mmss, multiplier, potOf, projectedPayout, ranked } from "../lib";
 import { type Game, useServerNow } from "../net";
 import { sfx } from "../sound";
 import { Avatar, Change, Coin, Money, Spark, toast } from "../ui";
 
 export function BetTab({ game, view, me }: { game: Game; view: ClientView; me: PlayerPub }) {
   const round = view.pub.round;
+  const night = view.pub.night;
   const now = useServerNow(game, !!round && round.status === "open");
-  if (!round) return <Idle view={view} me={me} />;
-  const open = round.status === "open" && (round.closesAt === null || now < round.closesAt);
-  if (open) return <BetForm key={round.id} game={game} view={view} me={me} round={round} now={now} />;
-  if (round.status === "resolved") return <Resolved view={view} me={me} round={round} />;
-  return <Locked view={view} me={me} round={round} />;
-}
+  const open = !!round && round.status === "open" && (round.closesAt === null || now < round.closesAt);
 
-function Idle({ view, me }: { view: ClientView; me: PlayerPub }) {
-  const list = ranked(view.pub.players);
-  const rank = list.findIndex((p) => p.id === me.id) + 1;
+  let featured: ReactNode = null;
+  if (round) {
+    if (open) featured = <BetForm key={round.id} game={game} view={view} me={me} round={round} now={now} />;
+    else if (round.status === "resolved") featured = <Resolved view={view} me={me} round={round} />;
+    else featured = <Locked view={view} me={me} round={round} />;
+  }
+
   return (
     <section className="stack">
-      <div className="idle felt">
-        <span className="idle-dice" aria-hidden="true">
-          🎲
-        </span>
-        <h2>אין הימור פתוח כרגע</h2>
-        <p>כשהמנחה יפתח סיבוב, הוא יופיע כאן. בינתיים אפשר לעבוד על המשימות הסודיות.</p>
-      </div>
-      <MyStock view={view} me={me} rank={rank} total={list.length} />
+      {featured ?? <Idle hasNight={night.length > 0} />}
+      {night.length > 0 && <NightSection game={game} view={view} me={me} night={night} now={now} />}
+      {!round && <MyStock view={view} me={me} />}
     </section>
   );
 }
 
-function MyStock({ view, me, rank, total }: { view: ClientView; me: PlayerPub; rank: number; total: number }) {
+function Idle({ hasNight }: { hasNight: boolean }) {
+  return (
+    <div className="idle felt">
+      <span className="idle-dice" aria-hidden="true">
+        🎲
+      </span>
+      <h2>אין אתגר פתוח כרגע</h2>
+      <p>{hasNight ? "כשהמנחה יפתח אתגר הוא יקפוץ כאן. בינתיים יש הימורי לילה למטה." : "כשהמנחה יפתח סיבוב, הוא יופיע כאן. בינתיים אפשר לעבוד על המשימות הסודיות."}</p>
+    </div>
+  );
+}
+
+function MyStock({ view, me }: { view: ClientView; me: PlayerPub }) {
+  const list = ranked(view.pub.players);
+  const rank = list.findIndex((p) => p.id === me.id) + 1;
   return (
     <div className="mystock felt">
       <div className="mystock-head">
         <span className="mystock-ticker">{me.ticker}</span>
         <span>
-          מקום {rank} מתוך {total}
+          מקום {rank} מתוך {list.length}
         </span>
       </div>
       <Spark data={me.spark} w={320} h={72} />
@@ -50,11 +60,14 @@ function MyStock({ view, me, rank, total }: { view: ClientView; me: PlayerPub; r
   );
 }
 
-function QuestionCard({ round, children }: { round: RoundPub; children: ReactNode }) {
+function QuestionCard({ round, children, label }: { round: RoundPub; children: ReactNode; label?: string }) {
   return (
     <div className="qcard felt">
       <div className="qcard-top">
-        <span className="qcard-num">סיבוב {round.number}</span>
+        <span className="qcard-num">{label ?? `סיבוב ${round.number}`}</span>
+        <span className="pot-chip">
+          בקופה <Money n={potOf(round)} size={15} />
+        </span>
         <span className="qcard-emoji" aria-hidden="true">
           {round.emoji}
         </span>
@@ -88,13 +101,12 @@ function Countdown({ round, now }: { round: RoundPub; now: number }) {
   );
 }
 
-function optionLabel(round: RoundPub, id: string | null | undefined) {
-  return round.options.find((o) => o.id === id)?.label ?? "";
-}
+const optionLabel = (round: RoundPub, id: string | null | undefined) => round.options.find((o) => o.id === id)?.label ?? "";
 
-function BetForm({ game, view, me, round, now }: { game: Game; view: ClientView; me: PlayerPub; round: RoundPub; now: number }) {
-  const myBet = view.me!.bet;
-  const max = Math.min(round.maxBet, me.balance);
+/** The betting form for one round: pick an option, pick chips, see what it would pay. */
+function BetForm({ game, view, me, round, now, compact }: { game: Game; view: ClientView; me: PlayerPub; round: RoundPub; now: number; compact?: boolean }) {
+  const myBet = view.me!.bets[round.id] ?? null;
+  const max = Math.min(round.maxBet, view.me!.available + (myBet?.amount ?? 0));
   const min = Math.min(round.minBet, max);
   const clamp = (n: number) => Math.max(min, Math.min(max, Math.round(n)));
   const [optionId, setOptionId] = useState<string | null>(myBet?.optionId ?? null);
@@ -106,23 +118,21 @@ function BetForm({ game, view, me, round, now }: { game: Game; view: ClientView;
     setAmount((a) => Math.max(min, Math.min(max, a)));
   }, [min, max]);
 
+  // a plain function, not a component: a component declared here would remount every countdown tick
+  const wrap = (content: ReactNode) =>
+    compact ? <div className="night-body">{content}</div> : <QuestionCard round={round}>{content}</QuestionCard>;
+
   if (round.noBet.includes(me.id)) {
-    return (
-      <QuestionCard round={round}>
-        {round.closesAt && <Countdown round={round} now={now} />}
-        <div className="notice">אתם משתתפים באתגר הזה, אז בסיבוב הזה לא מהמרים. בהצלחה! 💪</div>
-      </QuestionCard>
+    return wrap(
+      <>
+        {!compact && round.closesAt && <Countdown round={round} now={now} />}
+        <div className="notice">אתם בתוך האתגר הזה, אז כאן לא מהמרים. בהצלחה! 💪</div>
+      </>,
     );
   }
 
   if (max <= 0) {
-    return (
-      <QuestionCard round={round}>
-        <div className="notice">
-          נגמרו לך ה{view.pub.settings.currency} 🥲 אפשר להשלים משימה סודית או לבקש מהמנחה חילוץ.
-        </div>
-      </QuestionCard>
-    );
+    return wrap(<div className="notice">אין לך כרגע {view.pub.settings.currency} פנויים להימור. אפשר להשלים משימה סודית או לבקש חילוץ.</div>);
   }
 
   const submit = async () => {
@@ -155,12 +165,20 @@ function BetForm({ game, view, me, round, now }: { game: Game; view: ClientView;
   };
 
   const players = view.pub.players;
-  return (
-    <QuestionCard round={round}>
-      {round.closesAt && <Countdown round={round} now={now} />}
+  const payout = optionId ? projectedPayout(round, optionId, amount, myBet) : 0;
+
+  return wrap(
+    <>
+      {!compact && round.closesAt && <Countdown round={round} now={now} />}
       {myBet && !editing ? (
         <>
-          <Ticket ticket={myBet.ticket} amount={myBet.amount} label={optionLabel(round, myBet.optionId)} note="אפשר לשנות עד שההימורים נסגרים" />
+          <Ticket
+            ticket={myBet.ticket}
+            amount={myBet.amount}
+            label={optionLabel(round, myBet.optionId)}
+            payout={projectedPayout(round, myBet.optionId, myBet.amount, myBet)}
+            note="הסכום ישתנה לפי ההימורים של כולם, עד שההימורים נסגרים"
+          />
           <div className="row-actions">
             <button type="button" className="btn btn-ghost" onClick={() => setEditing(true)} disabled={busy}>
               שינוי ההימור
@@ -176,6 +194,7 @@ function BetForm({ game, view, me, round, now }: { game: Game; view: ClientView;
             {round.options.map((o) => {
               const st = round.stats.find((s) => s.optionId === o.id);
               const p = o.playerId ? players.find((x) => x.id === o.playerId) : undefined;
+              const m = multiplier(round, o.id);
               return (
                 <button
                   key={o.id}
@@ -190,6 +209,7 @@ function BetForm({ game, view, me, round, now }: { game: Game; view: ClientView;
                 >
                   {p && <Avatar p={p} size={40} />}
                   <span className="opt-label">{o.label}</span>
+                  <span className="opt-odds">{m === null ? "אף אחד עוד לא" : fmtX(m)}</span>
                   {!!st?.count && <span className="opt-count">{st.count} הימרו</span>}
                 </button>
               );
@@ -241,6 +261,13 @@ function BetForm({ game, view, me, round, now }: { game: Game; view: ClientView;
             </p>
           </div>
 
+          {optionId && (
+            <div className="payout-line">
+              <span>אם תצדקו:</span>
+              <Money n={payout} size={18} />
+              <span className="payout-x">({fmtX(amount ? payout / amount : null)})</span>
+            </div>
+          )}
           <button type="button" className="btn btn-gold btn-xl" disabled={!optionId || busy} onClick={submit}>
             {busy ? "שולח…" : optionId ? `להמר ${fmt(amount)} על ״${optionLabel(round, optionId)}״` : "בחרו על מה להמר"}
           </button>
@@ -251,11 +278,11 @@ function BetForm({ game, view, me, round, now }: { game: Game; view: ClientView;
           )}
         </>
       )}
-    </QuestionCard>
+    </>,
   );
 }
 
-export function Ticket({ ticket, amount, label, note }: { ticket: number; amount: number; label: string; note?: string }) {
+export function Ticket({ ticket, amount, label, payout, note }: { ticket: number; amount: number; label: string; payout?: number; note?: string }) {
   return (
     <div className="ticket">
       <div className="ticket-head">
@@ -267,6 +294,11 @@ export function Ticket({ ticket, amount, label, note }: { ticket: number; amount
         <span>על</span>
         <strong>״{label}״</strong>
       </div>
+      {payout !== undefined && (
+        <div className="ticket-payout">
+          אם תצדקו מקבלים בערך <Money n={payout} size={16} />
+        </div>
+      )}
       {note && <div className="ticket-note">{note}</div>}
       <div className="barcode" aria-hidden="true" />
     </div>
@@ -274,12 +306,17 @@ export function Ticket({ ticket, amount, label, note }: { ticket: number; amount
 }
 
 function Locked({ view, me, round }: { view: ClientView; me: PlayerPub; round: RoundPub }) {
-  const myBet = view.me!.bet;
+  const myBet = view.me!.bets[round.id];
   return (
     <QuestionCard round={round}>
       <div className="stamp">ההימורים נסגרו</div>
       {myBet ? (
-        <Ticket ticket={myBet.ticket} amount={myBet.amount} label={optionLabel(round, myBet.optionId)} />
+        <Ticket
+          ticket={myBet.ticket}
+          amount={myBet.amount}
+          label={optionLabel(round, myBet.optionId)}
+          payout={projectedPayout(round, myBet.optionId, myBet.amount, myBet)}
+        />
       ) : (
         <p className="muted center">{round.noBet.includes(me.id) ? "בהצלחה באתגר!" : "לא הימרת בסיבוב הזה."}</p>
       )}
@@ -288,23 +325,99 @@ function Locked({ view, me, round }: { view: ClientView; me: PlayerPub; round: R
   );
 }
 
+function MyResult({ round, meId, bet }: { round: RoundPub; meId: string; bet?: { amount: number } }) {
+  if (round.refunded) return <p className="muted center">אף אחד לא צדק, אז כל ההימורים חזרו לבעלים.</p>;
+  const mine = round.results?.find((x) => x.playerId === meId);
+  if (!mine || !bet) return <p className="muted center">{round.noBet.includes(meId) ? "השתתפת באתגר הזה." : "לא הימרת בסיבוב הזה."}</p>;
+  const won = round.bets?.find((b) => b.playerId === meId)?.optionId === round.winnerId;
+  return (
+    <div className={cls("result-big", won ? "up" : "down")}>
+      <span>{won ? "צדקת!" : "לא הפעם"}</span>
+      <Money n={mine.delta} sign size={26} />
+    </div>
+  );
+}
+
 function Resolved({ view, me, round }: { view: ClientView; me: PlayerPub; round: RoundPub }) {
-  const myBet = view.me!.bet;
-  const won = myBet && myBet.optionId === round.winnerId;
   return (
     <QuestionCard round={round}>
       <div className="result-line">
         התוצאה: <strong>{optionLabel(round, round.winnerId)}</strong>
       </div>
-      {myBet ? (
-        <div className={cls("result-big", won ? "up" : "down")}>
-          <span>{won ? "צדקת!" : "לא הפעם"}</span>
-          <Money n={won ? myBet.amount : -myBet.amount} sign size={26} />
-        </div>
-      ) : (
-        <p className="muted center">{round.noBet.includes(me.id) ? "השתתפת באתגר הזה." : "לא הימרת בסיבוב הזה."}</p>
-      )}
+      <MyResult round={round} meId={me.id} bet={view.me!.bets[round.id]} />
       <p className="muted center">הסיבוב הבא יופיע כאן כשייפתח.</p>
     </QuestionCard>
+  );
+}
+
+/* ---------- night bets ---------- */
+
+function NightSection({ game, view, me, night, now }: { game: Game; view: ClientView; me: PlayerPub; night: RoundPub[]; now: number }) {
+  const order = { open: 0, closed: 1, resolved: 2, draft: 3 } as const;
+  const list = [...night].sort((a, b) => order[a.status] - order[b.status]);
+  return (
+    <section className="night">
+      <header className="night-head">
+        <h2>🌙 הימורי לילה</h2>
+        <p>פתוחים כל הלילה. המנחה מכריע כשזה קורה, והקופה מתחלקת בין מי שצדק.</p>
+      </header>
+      {list.map((r) => (
+        <NightCard key={r.id} game={game} view={view} me={me} r={r} now={now} />
+      ))}
+    </section>
+  );
+}
+
+function NightCard({ game, view, me, r, now }: { game: Game; view: ClientView; me: PlayerPub; r: RoundPub; now: number }) {
+  const [open, setOpen] = useState(false);
+  const mine = view.me!.bets[r.id];
+  const canBet = r.status === "open" && !r.noBet.includes(me.id);
+  const status =
+    r.status === "resolved" ? `הוכרע: ${optionLabel(r, r.winnerId)}` : r.status === "closed" ? "ההימורים נסגרו" : mine ? "הימרת ✓" : "פתוח להימורים";
+  return (
+    <article className={cls("night-card", r.status, mine && "has-bet")}>
+      <button type="button" className="night-face" onClick={() => setOpen(!open)} aria-expanded={open}>
+        <span className="night-emoji" aria-hidden="true">
+          {r.emoji}
+        </span>
+        <span className="night-text">
+          <b>{r.title}</b>
+          <small>
+            {status}
+            {mine && r.status !== "resolved" && (
+              <>
+                {" "}
+                · {fmt(mine.amount)} על ״{optionLabel(r, mine.optionId)}״
+              </>
+            )}
+          </small>
+        </span>
+        <span className="night-pot">
+          <Money n={potOf(r)} size={14} />
+        </span>
+      </button>
+      <AnimatePresence initial={false}>
+        {open && (
+          <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.22 }} style={{ overflow: "hidden" }}>
+            {r.note && <p className="night-note">{r.note}</p>}
+            {r.status === "resolved" ? (
+              <div className="night-body">
+                <MyResult round={r} meId={me.id} bet={mine} />
+              </div>
+            ) : canBet ? (
+              <BetForm game={game} view={view} me={me} round={r} now={now} compact />
+            ) : (
+              <div className="night-body">
+                {mine ? (
+                  <Ticket ticket={mine.ticket} amount={mine.amount} label={optionLabel(r, mine.optionId)} payout={projectedPayout(r, mine.optionId, mine.amount, mine)} />
+                ) : (
+                  <p className="muted center">{r.noBet.includes(me.id) ? "את זה משאירים לאחרים 😉" : "ההימורים על זה נסגרו."}</p>
+                )}
+              </div>
+            )}
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </article>
   );
 }

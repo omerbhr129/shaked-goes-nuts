@@ -1,38 +1,27 @@
 import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useState } from "react";
 import type { ClientView, Mission } from "../../shared/types";
-import { cls } from "../lib";
+import { cls, fmt } from "../lib";
 import type { Game } from "../net";
 import { sfx } from "../sound";
-import { Money, ask, toast } from "../ui";
+import { Avatar, Money, Sheet, ask, burst, toast } from "../ui";
 
 const tierOf = (reward: number) => (reward >= 200 ? "קשה" : reward >= 150 ? "בינונית" : "קלה");
 
 export function MissionsTab({ game, view }: { game: Game; view: ClientView }) {
-  const missions = view.me!.missions;
+  const me = view.me!;
+  const missions = me.missions;
   const done = missions.filter((m) => m.status === "done");
   const earned = done.reduce((a, m) => a + m.reward, 0);
-
-  if (!missions.length) {
-    return (
-      <section className="stack">
-        <div className="idle felt">
-          <span className="idle-dice" aria-hidden="true">
-            ✉️
-          </span>
-          <h2>המשימות עוד לא חולקו</h2>
-          <p>המנחה יחלק לכל אחד שלוש משימות סודיות. ברגע שזה יקרה, הן יופיעו כאן.</p>
-        </div>
-      </section>
-    );
-  }
+  const allDone = missions.length > 0 && done.length === missions.length;
+  const nameOf = (id: string | null) => view.pub.players.find((p) => p.id === id)?.name ?? "מישהו";
 
   return (
     <section className="stack">
       <header className="missions-head">
         <h2>המשימות הסודיות שלך</h2>
         <p>
-          רק אתם רואים אותן. מבצעים בלי שאף אחד ישים לב, ואז מסמנים כאן. המנחה מאשר בשקט, ובסוף הלילה כולם יגלו מי עבד על מי.
+          רק אתם רואים אותן. ביצעתם בלי שאף אחד שם לב? מסמנים ומקבלים את השקדים מיד. אבל מי שתופס אתכם על חם, שורף לכם את המשימה.
         </p>
         <div className="missions-progress">
           <span>
@@ -41,9 +30,35 @@ export function MissionsTab({ game, view }: { game: Game; view: ClientView }) {
           {earned > 0 && <Money n={earned} sign size={16} />}
         </div>
       </header>
+
+      {!missions.length && (
+        <div className="idle felt">
+          <span className="idle-dice" aria-hidden="true">
+            ✉️
+          </span>
+          <h2>המשימות בדרך</h2>
+          <p>המשימות מחולקות אוטומטית. אם הן לא מופיעות תוך רגע, תגידו למנחה.</p>
+        </div>
+      )}
+
       {missions.map((m) => (
         <Envelope key={m.id} m={m} game={game} />
       ))}
+
+      {allDone && <ExtraMission game={game} />}
+
+      {me.burned.length > 0 && (
+        <div className="burned felt">
+          <h3>🔥 משימות שנשרפו</h3>
+          {me.burned.map((b, i) => (
+            <p key={i}>
+              ״{b.text}״ <span className="muted">· תפס אותך {nameOf(b.by)}</span>
+            </p>
+          ))}
+        </div>
+      )}
+
+      <CatchCard game={game} view={view} />
     </section>
   );
 }
@@ -62,15 +77,17 @@ function Envelope({ m, game }: { m: Mission; game: Game }) {
   const claim = async () => {
     const ok = await ask({
       title: "המשימה בוצעה?",
-      body: "המנחה יקבל בקשה לאשר אותה. אף אחד אחר לא יראה.",
-      ok: "שליחה לאישור",
+      body: `מקבלים ${fmt(m.reward)} שקדים מיד, והטלוויזיה תכריז שמשימה סודית בוצעה (בלי שם). אם מישהו יתפוס אתכם, המשימה תישרף.`,
+      ok: "ביצעתי!",
     });
     if (!ok) return;
     setBusy(true);
     try {
       await game.act("claimMission", { missionId: m.id });
-      sfx.coin();
-      toast("נשלח למנחה. מחכים לאישור 🤫", "ok");
+      sfx.secret();
+      burst("coins");
+      navigator.vibrate?.([30, 50, 30]);
+      toast(`🤫 +${fmt(m.reward)}. אף אחד לא יודע. בינתיים.`, "ok");
     } catch (e) {
       toast((e as Error).message, "err");
     } finally {
@@ -79,10 +96,12 @@ function Envelope({ m, game }: { m: Mission; game: Game }) {
   };
 
   const unclaim = async () => {
+    const ok = await ask({ title: "לבטל את הסימון?", body: `ה־${fmt(m.reward)} יורדים והמשימה חוזרת להיות פתוחה.`, ok: "ביטול הסימון" });
+    if (!ok) return;
     setBusy(true);
     try {
       await game.act("unclaimMission", { missionId: m.id });
-      toast("הבקשה בוטלה");
+      toast("הסימון בוטל");
     } catch (e) {
       toast((e as Error).message, "err");
     } finally {
@@ -90,7 +109,7 @@ function Envelope({ m, game }: { m: Mission; game: Game }) {
     }
   };
 
-  const hint = m.status === "done" ? "בוצעה" : m.status === "pending" ? "ממתינה לאישור" : open ? "הקישו לסגירה" : "הקישו לפתיחה";
+  const hint = m.status === "done" ? "בוצעה" : open ? "הקישו לסגירה" : "הקישו לפתיחה";
 
   return (
     <article className={cls("envelope", `st-${m.status}`, open && "unsealed")}>
@@ -126,24 +145,19 @@ function Envelope({ m, game }: { m: Mission; game: Game }) {
           >
             <div className="env-paper">
               <p className="env-text">{m.text}</p>
-              {m.status === "open" && (
-                <button type="button" className="btn btn-gold" onClick={claim} disabled={busy}>
-                  ביצעתי! שליחה לאישור
-                </button>
-              )}
-              {m.status === "pending" && (
-                <div className="env-pending">
-                  <span>ממתינה לאישור המנחה ⏳</span>
+              {m.status === "done" ? (
+                <div className="env-done">
+                  <span>
+                    בוצעה <Money n={m.reward} sign size={16} />
+                  </span>
                   <button type="button" className="link-btn" onClick={unclaim} disabled={busy}>
-                    ביטול הבקשה
+                    ביטול הסימון
                   </button>
                 </div>
-              )}
-              {m.status === "done" && (
-                <div className="env-done">
-                  <span>אושרה</span>
-                  <Money n={m.reward} sign size={18} />
-                </div>
+              ) : (
+                <button type="button" className="btn btn-gold" onClick={claim} disabled={busy}>
+                  ✅ ביצעתי!
+                </button>
               )}
             </div>
           </motion.div>
@@ -155,5 +169,118 @@ function Envelope({ m, game }: { m: Mission; game: Game }) {
         </span>
       )}
     </article>
+  );
+}
+
+function ExtraMission({ game }: { game: Game }) {
+  const [busy, setBusy] = useState(false);
+  return (
+    <div className="notice">
+      <p>סוכן מצטיין. כל המשימות בוצעו 😎</p>
+      <button
+        type="button"
+        className="btn btn-gold btn-s"
+        disabled={busy}
+        onClick={async () => {
+          setBusy(true);
+          try {
+            await game.act("extraMission");
+            sfx.secret();
+            toast("משימת בונוס חדשה במעטפה", "ok");
+          } catch (e) {
+            toast((e as Error).message, "err");
+          } finally {
+            setBusy(false);
+          }
+        }}
+      >
+        עוד משימה, בבקשה
+      </button>
+    </div>
+  );
+}
+
+/** "Caught you!" — accuse someone of doing a mission right now. The host rules on it. */
+function CatchCard({ game, view }: { game: Game; view: ClientView }) {
+  const me = view.me!;
+  const { catchReward, falsePenalty } = view.pub.settings;
+  const [sheet, setSheet] = useState(false);
+  const [suspect, setSuspect] = useState<string | null>(null);
+  const [text, setText] = useState("");
+  const [busy, setBusy] = useState(false);
+  const acc = me.accusation;
+  const nameOf = (id: string) => view.pub.players.find((p) => p.id === id)?.name ?? "";
+  const pending = acc?.status === "pending";
+
+  const send = async () => {
+    if (!suspect) return;
+    setBusy(true);
+    try {
+      await game.act("accuse", { suspectId: suspect, text });
+      toast("נשלח למנחה. אם צדקתם, תשמעו על זה בטלוויזיה 🕵️", "ok");
+      setSheet(false);
+      setSuspect(null);
+      setText("");
+    } catch (e) {
+      toast((e as Error).message, "err");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="catch felt">
+      <div className="catch-head">
+        <span className="catch-icon" aria-hidden="true">
+          🕵️
+        </span>
+        <div>
+          <h3>תפסתם מישהו על חם?</h3>
+          <p>
+            מנחשים מה המשימה שלו. צדקתם? <b>+{catchReward}</b> והמשימה שלו נשרפת. טעיתם? <b>−{falsePenalty}</b>.
+          </p>
+        </div>
+      </div>
+      {pending ? (
+        <p className="catch-status">⏳ ההאשמה שלך נגד {nameOf(acc.suspect)} אצל המנחה</p>
+      ) : (
+        <>
+          {acc && (
+            <p className="catch-status">
+              {acc.status === "right" ? `✅ צדקת לגבי ${nameOf(acc.suspect)}! +${catchReward}` : `❌ טעית לגבי ${nameOf(acc.suspect)}. −${falsePenalty}`}
+            </p>
+          )}
+          <button type="button" className="btn btn-ghost" onClick={() => setSheet(true)}>
+            🕵️ תפסתי מישהו!
+          </button>
+        </>
+      )}
+      <Sheet open={sheet} onClose={() => setSheet(false)} title="את מי תפסתם?">
+        <div className="form">
+          <div className="suspects">
+            {view.pub.players
+              .filter((p) => p.id !== me.id)
+              .map((p) => (
+                <button key={p.id} type="button" className={cls("suspect", suspect === p.id && "on")} onClick={() => setSuspect(p.id)} aria-pressed={suspect === p.id}>
+                  <Avatar p={p} size={52} />
+                  <span>{p.name}</span>
+                </button>
+              ))}
+          </div>
+          <label className="field">
+            <span>מה לדעתכם המשימה שלו?</span>
+            <textarea value={text} onChange={(e) => setText(e.target.value)} rows={2} maxLength={160} placeholder="למשל: הוא ניסה לגרום לאיתי להגיד ״פיסטוק״" />
+          </label>
+          <div className="sheet-actions">
+            <button type="button" className="btn btn-gold" disabled={!suspect || text.trim().length < 3 || busy} onClick={send}>
+              שליחה למנחה
+            </button>
+            <button type="button" className="btn btn-ghost" onClick={() => setSheet(false)}>
+              ביטול
+            </button>
+          </div>
+        </div>
+      </Sheet>
+    </div>
   );
 }

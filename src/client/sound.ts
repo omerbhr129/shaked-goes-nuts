@@ -143,6 +143,26 @@ export const sfx = {
       tone(1319, 0.38, 0.5, "sine", 0.14);
       coinPing(0.7, 0.05);
     }),
+  alert: () =>
+    play(() => {
+      for (let i = 0; i < 3; i++) {
+        tone(880, i * 0.32, 0.16, "square", 0.07, 660);
+        tone(660, i * 0.32 + 0.16, 0.16, "square", 0.07, 880);
+      }
+    }),
+  gotcha: () =>
+    play(() => {
+      tone(523, 0, 0.12, "square", 0.1);
+      tone(392, 0.12, 0.12, "square", 0.1);
+      tone(262, 0.24, 0.45, "square", 0.1, 180);
+      noise(0.24, 0.3, 0.25, 1200, 0.6);
+    }),
+  wheelTick: () => play(() => noise(0, 0.03, 0.35, 3200, 2)),
+  ding: () =>
+    play(() => {
+      tone(1568, 0, 1.2, "sine", 0.25);
+      tone(2093, 0.02, 1, "sine", 0.12);
+    }),
   join: () =>
     play(() => {
       tone(659, 0, 0.12, "triangle", 0.15);

@@ -1,11 +1,11 @@
 import { AnimatePresence, motion } from "motion/react";
 import { type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
-import type { ClientView, TvMode } from "../../shared/types";
+import type { ClientView, FeedEvent, PlayerPub, TvMode, WheelSpin } from "../../shared/types";
 import { cls, keepAwake } from "../lib";
 import { useGame } from "../net";
 import { sfx, unlockAudio } from "../sound";
-import { Marquee, Ticker } from "../ui";
-import { BoardScreen, Lobby, RevealScreen, RoundScreen, WinnerScreen } from "./Screens";
+import { Avatar, Marquee, Ticker, burst } from "../ui";
+import { AwardsScreen, BoardScreen, Lobby, NightScreen, RevealScreen, RoundScreen, WinnerScreen } from "./Screens";
 
 function effectiveMode(view: ClientView): TvMode {
   const m = view.pub.tv.mode;
@@ -75,11 +75,15 @@ export function TvApp() {
               {mode === "lobby" && <Lobby view={view} />}
               {mode === "round" && <RoundScreen view={view} game={game} />}
               {mode === "board" && <BoardScreen view={view} />}
+              {mode === "night" && <NightScreen view={view} />}
               {mode === "missions" && <RevealScreen view={view} />}
+              {mode === "awards" && <AwardsScreen view={view} />}
               {mode === "winner" && <WinnerScreen view={view} />}
             </motion.div>
           </AnimatePresence>
           <Ticker players={view.pub.players} start={view.pub.settings.startBalance} />
+          <NewsBanner feed={view.pub.feed} players={view.pub.players} />
+          <WheelOverlay wheel={view.pub.wheel} players={view.pub.players} offset={game.offset} />
           <span className={cls("tv-conn", status)} aria-hidden="true" />
         </div>
       </Stage>
@@ -112,4 +116,158 @@ function useTvSounds(view: ClientView | null) {
     else if (r && cur.roundKey === p.roundKey && cur.status === "open" && cur.bettors > p.bettors) sfx.chip();
     if (r && cur.roundKey === p.roundKey && p.status === "open" && cur.status === "closed") sfx.close();
   }, [view]);
+}
+
+const NEWS_TAG: Record<string, string> = { mission: "מבזק", caught: "נתפס!", miss: "פספוס", bailout: "חילוץ", result: "הוכרע" };
+
+/** Breaking news strip for things that just happened in the room. */
+function NewsBanner({ feed, players }: { feed: FeedEvent[]; players: PlayerPub[] }) {
+  const [queue, setQueue] = useState<FeedEvent[]>([]);
+  const seen = useRef<Set<string> | null>(null);
+  useEffect(() => {
+    if (!seen.current) {
+      seen.current = new Set(feed.map((e) => e.id));
+      return;
+    }
+    const fresh = feed.filter((e) => !seen.current!.has(e.id) && e.kind !== "wheel");
+    for (const e of feed) seen.current.add(e.id);
+    if (fresh.length) setQueue((q) => [...q, ...fresh]);
+  }, [feed]);
+
+  const current = queue[0];
+  useEffect(() => {
+    if (!current) return;
+    if (current.kind === "mission") sfx.alert();
+    else if (current.kind === "caught") sfx.gotcha();
+    else if (current.kind === "miss") sfx.lose();
+    else sfx.coin();
+    const id = window.setTimeout(() => setQueue((q) => q.slice(1)), 7500);
+    return () => window.clearTimeout(id);
+  }, [current?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const people = current ? current.players.map((id) => players.find((p) => p.id === id)).filter((p): p is PlayerPub => !!p) : [];
+  return (
+    <AnimatePresence>
+      {current && (
+        <motion.div
+          key={current.id}
+          className={cls("news", current.kind)}
+          initial={{ y: -160 }}
+          animate={{ y: 0 }}
+          exit={{ y: -160 }}
+          transition={{ type: "spring", stiffness: 220, damping: 24 }}
+        >
+          <span className="news-tag">{NEWS_TAG[current.kind] ?? "עדכון"}</span>
+          <span className="news-text">{current.text}</span>
+          {people.length > 0 && people.length <= 4 && (
+            <span className="news-faces">
+              {people.map((p) => (
+                <Avatar key={p.id} p={p} size={72} />
+              ))}
+            </span>
+          )}
+        </motion.div>
+      )}
+    </AnimatePresence>
+  );
+}
+
+const WHEEL_COLORS = [
+  ["#E9B949", "#1C1206"],
+  ["#11523C", "#F3E3C3"],
+  ["#8E1B22", "#F3E3C3"],
+  ["#F3E3C3", "#1C1206"],
+];
+
+function arc(a0: number, a1: number, r: number) {
+  const p = (a: number) => `${(Math.sin((a * Math.PI) / 180) * r).toFixed(2)} ${(-Math.cos((a * Math.PI) / 180) * r).toFixed(2)}`;
+  return `M 0 0 L ${p(a0)} A ${r} ${r} 0 0 1 ${p(a1)} Z`;
+}
+
+const short = (label: string) => {
+  const words = label.split(" ");
+  return words.length > 4 ? `${words.slice(0, 4).join(" ")}…` : label;
+};
+
+/** The drinking / punishment wheel: spins on every new spin the host triggers, then shows who it landed on. */
+function WheelOverlay({ wheel, players, offset }: { wheel: WheelSpin | null; players: PlayerPub[]; offset: number }) {
+  const [phase, setPhase] = useState<"spin" | "done" | null>(null);
+  const shown = useRef<string | null>(wheel?.id ?? null);
+
+  useEffect(() => {
+    if (!wheel || wheel.id === shown.current) return;
+    shown.current = wheel.id;
+    if (Date.now() + offset - wheel.at > 20_000) return;
+    setPhase("spin");
+    const timers: number[] = [];
+    let t = 0;
+    let gap = 55;
+    while (t < 5200) {
+      timers.push(window.setTimeout(() => sfx.wheelTick(), t));
+      gap *= 1.07;
+      t += gap;
+    }
+    timers.push(
+      window.setTimeout(() => {
+        setPhase("done");
+        sfx.ding();
+        burst("win");
+      }, 5400),
+    );
+    timers.push(window.setTimeout(() => setPhase(null), 16_000));
+    return () => timers.forEach((x) => window.clearTimeout(x));
+  }, [wheel?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  if (!phase || !wheel) return null;
+  const n = wheel.segments.length;
+  const seg = 360 / n;
+  const target = 360 * 6 - (wheel.index * seg + seg / 2);
+  const who = wheel.players.map((id) => players.find((p) => p.id === id)).filter((p): p is PlayerPub => !!p);
+
+  return (
+    <motion.div className="wheel-overlay" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+      <div className="wheel-title">{wheel.kind === "punish" ? "🍋 גלגל העונשים" : "🎡 גלגל השתייה"}</div>
+      <div className="wheel-wrap">
+        <div className="wheel-pointer" aria-hidden="true" />
+        <motion.svg className="wheel" viewBox="-104 -104 208 208" initial={{ rotate: 0 }} animate={{ rotate: target }} transition={{ duration: 5.2, ease: [0.1, 0.75, 0.15, 1] }}>
+          <circle r="103" fill="#4A2A12" stroke="#C9922F" strokeWidth="3" />
+          {wheel.segments.map((label, i) => {
+            const [bg, fg] = WHEEL_COLORS[i % WHEEL_COLORS.length];
+            const mid = i * seg + seg / 2;
+            return (
+              <g key={i}>
+                <path d={arc(i * seg, (i + 1) * seg, 98)} fill={bg} stroke="#4A2A12" strokeWidth="0.8" />
+                <g transform={`rotate(${mid})`}>
+                  <text x="0" y="-56" transform="rotate(90 0 -56)" fill={fg} fontSize={n > 8 ? 6.2 : 7.2} fontWeight="800" textAnchor="middle" dominantBaseline="middle" fontFamily="Rubik, sans-serif">
+                    {short(label)}
+                  </text>
+                </g>
+              </g>
+            );
+          })}
+          <circle r="14" fill="#E9B949" stroke="#4A2A12" strokeWidth="2" />
+          <text y="1" fontSize="13" textAnchor="middle" dominantBaseline="middle">
+            🥜
+          </text>
+        </motion.svg>
+      </div>
+      <AnimatePresence>
+        {phase === "done" && (
+          <motion.div className="wheel-result" initial={{ y: 60, opacity: 0, scale: 0.9 }} animate={{ y: 0, opacity: 1, scale: 1 }} transition={{ type: "spring", stiffness: 200, damping: 16 }}>
+            <div className="wheel-label">{wheel.label}</div>
+            {who.length > 0 && who.length < players.length && (
+              <div className="wheel-who">
+                {who.map((p) => (
+                  <span key={p.id} className="wheel-person">
+                    <Avatar p={p} size={110} />
+                    <b>{p.name}</b>
+                  </span>
+                ))}
+              </div>
+            )}
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </motion.div>
+  );
 }

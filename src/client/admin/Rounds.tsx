@@ -1,16 +1,19 @@
 import { useState } from "react";
-import type { ClientView, PlayerPub, RoundOption, RoundRec, RoundStatus } from "../../shared/types";
-import { cls, fmt, mmss, resizeImage } from "../lib";
+import type { Bet, ClientView, PlayerPub, RoundKind, RoundOption, RoundPub, RoundRec, RoundStatus } from "../../shared/types";
+import { cls, fmt, fmtX, mmss, multiplier, potOf, resizeImage } from "../lib";
 import { type Game, useServerNow } from "../net";
 import { Avatar, Money, Sheet, ask, toast } from "../ui";
-import type { Run } from "./AdminApp";
+import { type Run, WheelButtons } from "./AdminApp";
 
 const STATUS: Record<RoundStatus, string> = { draft: "מוכן", open: "פתוח", closed: "סגור", resolved: "הוכרע" };
 
 export function RoundsTab({ game, view, run }: { game: Game; view: ClientView; run: Run }) {
   const rounds = view.admin!.rounds;
-  const [editing, setEditing] = useState<RoundRec | "new" | null>(null);
+  const challenges = rounds.filter((r) => r.kind === "challenge");
+  const night = rounds.filter((r) => r.kind === "night");
+  const [editing, setEditing] = useState<RoundRec | RoundKind | null>(null);
   const [opening, setOpening] = useState<RoundRec | null>(null);
+  const [resolving, setResolving] = useState<RoundRec | null>(null);
   const live = view.pub.round;
   const busyElsewhere = live && (live.status === "open" || live.status === "closed");
 
@@ -19,13 +22,13 @@ export function RoundsTab({ game, view, run }: { game: Game; view: ClientView; r
       {live && <LiveRound game={game} view={view} run={run} />}
 
       <div className="section-head">
-        <h2 className="section-title">כל הסיבובים</h2>
-        <button type="button" className="btn btn-gold btn-s" onClick={() => setEditing("new")}>
-          + סיבוב חדש
+        <h2 className="section-title">🎲 אתגרים</h2>
+        <button type="button" className="btn btn-gold btn-s" onClick={() => setEditing("challenge")}>
+          + אתגר
         </button>
       </div>
       <ol className="round-list">
-        {rounds.map((r, i) => (
+        {challenges.map((r, i) => (
           <li key={r.id} className={cls("round-item", r.status, live?.id === r.id && "live")}>
             <div className="round-item-main">
               <span className="round-n num">{i + 1}</span>
@@ -44,59 +47,131 @@ export function RoundsTab({ game, view, run }: { game: Game; view: ClientView; r
                   ▶ פתיחה
                 </button>
               )}
-              <button type="button" className="btn btn-ghost btn-s" onClick={() => setEditing(r)}>
-                עריכה
-              </button>
-              <button type="button" className="icon-btn" aria-label="להזיז למעלה" onClick={() => run("moveRound", { roundId: r.id, dir: "up" })}>
-                ↑
-              </button>
-              <button type="button" className="icon-btn" aria-label="להזיז למטה" onClick={() => run("moveRound", { roundId: r.id, dir: "down" })}>
-                ↓
-              </button>
-              {r.status === "draft" ? (
-                <button
-                  type="button"
-                  className="icon-btn"
-                  aria-label="מחיקה"
-                  onClick={async () => {
-                    if (await ask({ title: "למחוק את הסיבוב?", body: r.title, ok: "מחיקה", danger: true })) await run("deleteRound", { roundId: r.id }, "הסיבוב נמחק");
-                  }}
-                >
-                  🗑
-                </button>
-              ) : (
-                live?.id !== r.id && (
-                  <button
-                    type="button"
-                    className="btn btn-ghost btn-s"
-                    onClick={async () => {
-                      if (
-                        await ask({
-                          title: "לאפס את הסיבוב?",
-                          body: "הרווחים וההפסדים של הסיבוב יבוטלו והוא יחזור לרשימה כאילו לא שוחק.",
-                          ok: "איפוס",
-                          danger: true,
-                        })
-                      )
-                        await run("cancelRound", { roundId: r.id }, "הסיבוב אופס");
-                    }}
-                  >
-                    איפוס
-                  </button>
-                )
-              )}
+              <RowTools r={r} run={run} onEdit={() => setEditing(r)} isLive={live?.id === r.id} />
             </div>
           </li>
         ))}
       </ol>
 
+      <div className="section-head">
+        <h2 className="section-title">🌙 הימורי לילה</h2>
+        <button type="button" className="btn btn-ghost btn-s" onClick={() => setEditing("night")}>
+          + הימור לילה
+        </button>
+      </div>
+      <p className="muted">פתוחים במקביל לאתגרים. סוגרים כשמתחיל הדבר, ומכריזים כשהוא קורה.</p>
+      {night.some((r) => r.status === "draft") && (
+        <button type="button" className="btn btn-gold" onClick={() => run("openAllNight", {}, "כל הימורי הלילה נפתחו")}>
+          🌙 לפתוח את כל הימורי הלילה
+        </button>
+      )}
+      <ol className="round-list">
+        {night.map((r) => {
+          const bets = view.admin!.bets.filter((b) => b.roundId === r.id);
+          const pot = bets.reduce((a, b) => a + b.amount, 0) + r.bonus;
+          return (
+            <li key={r.id} className={cls("round-item", r.status)}>
+              <div className="round-item-main">
+                <span className="round-n" />
+                <span className="round-emoji" aria-hidden="true">
+                  {r.emoji}
+                </span>
+                <div className="round-text">
+                  <b>{r.title}</b>
+                  <small>
+                    {r.status === "resolved"
+                      ? `הוכרע: ${r.options.find((o) => o.id === r.winnerId)?.label ?? ""}`
+                      : `${bets.length} הימורים · בקופה ${fmt(pot)}`}
+                  </small>
+                </div>
+                <span className={cls("status-tag", r.status)}>{STATUS[r.status]}</span>
+              </div>
+              <div className="round-item-actions">
+                {r.status === "draft" && (
+                  <button type="button" className="btn btn-gold btn-s" onClick={() => run("openRound", { roundId: r.id }, "נפתח להימורים")}>
+                    ▶ פתיחה
+                  </button>
+                )}
+                {r.status === "open" && (
+                  <button type="button" className="btn btn-ghost btn-s" onClick={() => run("closeRound", { roundId: r.id }, "ההימורים נסגרו")}>
+                    🔒 סגירה
+                  </button>
+                )}
+                {(r.status === "open" || r.status === "closed") && (
+                  <button type="button" className="btn btn-gold btn-s" onClick={() => setResolving(r)}>
+                    ✓ הכרזה
+                  </button>
+                )}
+                <RowTools r={r} run={run} onEdit={() => setEditing(r)} isLive={false} />
+              </div>
+            </li>
+          );
+        })}
+      </ol>
+
       <OpenSheet round={opening} onClose={() => setOpening(null)} run={run} />
-      <Sheet open={!!editing} onClose={() => setEditing(null)} title={editing === "new" ? "סיבוב חדש" : "עריכת סיבוב"} wide>
+      <ResolveSheet round={resolving} bets={view.admin!.bets} onClose={() => setResolving(null)} run={run} />
+      <Sheet open={!!editing} onClose={() => setEditing(null)} title={typeof editing === "string" ? (editing === "night" ? "הימור לילה חדש" : "אתגר חדש") : "עריכה"} wide>
         {editing && (
-          <RoundForm key={editing === "new" ? "new" : editing.id} value={editing === "new" ? null : editing} game={game} view={view} onDone={() => setEditing(null)} />
+          <RoundForm
+            key={typeof editing === "string" ? editing : editing.id}
+            value={typeof editing === "string" ? null : editing}
+            kind={typeof editing === "string" ? editing : editing.kind}
+            game={game}
+            view={view}
+            onDone={() => setEditing(null)}
+          />
         )}
       </Sheet>
     </section>
+  );
+}
+
+function RowTools({ r, run, onEdit, isLive }: { r: RoundRec; run: Run; onEdit: () => void; isLive: boolean }) {
+  return (
+    <>
+      <button type="button" className="btn btn-ghost btn-s" onClick={onEdit}>
+        עריכה
+      </button>
+      <button type="button" className="icon-btn" aria-label="להזיז למעלה" onClick={() => run("moveRound", { roundId: r.id, dir: "up" })}>
+        ↑
+      </button>
+      <button type="button" className="icon-btn" aria-label="להזיז למטה" onClick={() => run("moveRound", { roundId: r.id, dir: "down" })}>
+        ↓
+      </button>
+      {r.status === "draft" ? (
+        <button
+          type="button"
+          className="icon-btn"
+          aria-label="מחיקה"
+          onClick={async () => {
+            if (await ask({ title: "למחוק?", body: r.title, ok: "מחיקה", danger: true })) await run("deleteRound", { roundId: r.id }, "נמחק");
+          }}
+        >
+          🗑
+        </button>
+      ) : (
+        !isLive && (
+          <button
+            type="button"
+            className="btn btn-ghost btn-s"
+            onClick={async () => {
+              if (
+                await ask({
+                  title: "לאפס?",
+                  body: "הרווחים וההפסדים יבוטלו, ההימורים יימחקו, והוא יחזור לרשימה כאילו לא שוחק.",
+                  ok: "איפוס",
+                  danger: true,
+                })
+              )
+                await run("cancelRound", { roundId: r.id }, "אופס");
+            }}
+          >
+            איפוס
+          </button>
+        )
+      )}
+    </>
   );
 }
 
@@ -137,18 +212,50 @@ function OpenSheet({ round, onClose, run }: { round: RoundRec | null; onClose: (
   );
 }
 
+function ResolveSheet({ round, bets, onClose, run }: { round: RoundRec | null; bets: Bet[]; onClose: () => void; run: Run }) {
+  return (
+    <Sheet open={!!round} onClose={onClose} title="מה קרה בסוף?">
+      {round && (
+        <>
+          <p className="sheet-text">
+            {round.emoji} {round.title}
+          </p>
+          <div className="choice-grid">
+            {round.options.map((o) => {
+              const n = bets.filter((b) => b.roundId === round.id && b.optionId === o.id).length;
+              return (
+                <button
+                  key={o.id}
+                  type="button"
+                  className="btn btn-ghost"
+                  onClick={async () => {
+                    onClose();
+                    await run("resolveRound", { roundId: round.id, optionId: o.id }, `הוכרע: ${o.label}`);
+                  }}
+                >
+                  {o.label} {n > 0 && <small className="muted">({n})</small>}
+                </button>
+              );
+            })}
+          </div>
+        </>
+      )}
+    </Sheet>
+  );
+}
+
 function LiveRound({ game, view, run }: { game: Game; view: ClientView; run: Run }) {
-  const r = view.pub.round!;
+  const r: RoundPub = view.pub.round!;
   const now = useServerNow(game, r.status === "open");
   const open = r.status === "open" && (r.closesAt === null || now < r.closesAt);
-  const bets = view.admin!.bets;
+  const bets = view.admin!.bets.filter((b) => b.roundId === r.id);
   const people = Object.fromEntries(view.pub.players.map((p) => [p.id, p])) as Record<string, PlayerPub>;
   const missing = view.pub.players.filter((p) => p.claimed && !r.noBet.includes(p.id) && !bets.some((b) => b.playerId === p.id));
 
   const resolve = async (o: RoundOption) => {
     const ok = await ask({
       title: `״${o.label}״ ניצח?`,
-      body: r.status === "resolved" ? "התוצאה הקודמת תבוטל וכל ההימורים יחושבו מחדש." : "כל ההימורים יחושבו עכשיו והתוצאה תוצג בטלוויזיה.",
+      body: r.status === "resolved" ? "התוצאה הקודמת תבוטל והקופה תחולק מחדש." : "הקופה מתחלקת עכשיו בין מי שצדק, והתוצאה מוצגת בטלוויזיה.",
       ok: "כן, להכריז",
     });
     if (ok) await run("resolveRound", { roundId: r.id, optionId: o.id }, "התוצאה הוכרזה");
@@ -158,6 +265,9 @@ function LiveRound({ game, view, run }: { game: Game; view: ClientView; run: Run
     <section className={cls("live felt", open ? "is-open" : r.status)}>
       <div className="live-head">
         <span className="live-badge">{open ? "פתוח להימורים" : r.status === "resolved" ? "הוכרע" : "ההימורים סגורים"}</span>
+        <span className="live-pot">
+          בקופה <Money n={potOf(r)} size={15} />
+        </span>
         {open && r.closesAt && <span className="live-timer num">{mmss(r.closesAt - now)}</span>}
       </div>
       <h3 className="live-title">
@@ -172,6 +282,7 @@ function LiveRound({ game, view, run }: { game: Game; view: ClientView; run: Run
               <div className="live-opt-head">
                 <b>{o.label}</b>
                 <span className="live-opt-sum">
+                  <span className="odds-chip">{fmtX(multiplier(r, o.id))}</span>
                   <span className="muted">{bs.length} הימורים</span>
                   <Money n={total} size={14} />
                 </span>
@@ -210,8 +321,8 @@ function LiveRound({ game, view, run }: { game: Game; view: ClientView; run: Run
         )}
         {r.status === "resolved" && (
           <>
-            <button type="button" className="btn btn-gold" onClick={() => run("setTv", { mode: "board" }, "הטבלה מוצגת בטלוויזיה")}>
-              📈 טבלת מובילים בטלוויזיה
+            <button type="button" className="btn btn-gold" onClick={() => run("setTv", { mode: "board" }, "מצב המסחר בטלוויזיה")}>
+              📈 מצב המסחר בטלוויזיה
             </button>
             <button type="button" className="btn btn-ghost" onClick={() => run("undoResolve", { roundId: r.id }, "התוצאה בוטלה")}>
               ביטול התוצאה
@@ -236,20 +347,27 @@ function LiveRound({ game, view, run }: { game: Game; view: ClientView; run: Run
           ביטול הסיבוב
         </button>
       </div>
+      {r.status === "resolved" && (
+        <div className="live-wheel">
+          <p className="muted">אחרי כל סיבוב: גלגל שתייה? 🍺</p>
+          <WheelButtons run={run} />
+        </div>
+      )}
     </section>
   );
 }
 
-type Draft = Pick<RoundRec, "emoji" | "title" | "note" | "image" | "options" | "minBet" | "maxBet" | "seconds" | "noBet"> & { id?: string };
+type Draft = Pick<RoundRec, "kind" | "emoji" | "title" | "note" | "image" | "options" | "minBet" | "maxBet" | "seconds" | "bonus" | "noBet"> & { id?: string };
 
-function RoundForm({ value, game, view, onDone }: { value: RoundRec | null; game: Game; view: ClientView; onDone: () => void }) {
+function RoundForm({ value, kind, game, view, onDone }: { value: RoundRec | null; kind: RoundKind; game: Game; view: ClientView; onDone: () => void }) {
   const players = view.pub.players;
   const locked = !!value && value.status !== "draft";
   const [d, setD] = useState<Draft>(() =>
     value
       ? structuredClone(value)
       : {
-          emoji: "🎲",
+          kind,
+          emoji: kind === "night" ? "🌙" : "🎲",
           title: "",
           note: "",
           image: null,
@@ -259,7 +377,8 @@ function RoundForm({ value, game, view, onDone }: { value: RoundRec | null; game
           ],
           minBet: 50,
           maxBet: 500,
-          seconds: 60,
+          seconds: kind === "night" ? 0 : 60,
+          bonus: kind === "night" ? 300 : view.pub.settings.bankBonus,
           noBet: [],
         },
   );
@@ -288,7 +407,7 @@ function RoundForm({ value, game, view, onDone }: { value: RoundRec | null; game
     setBusy(true);
     try {
       await game.act("saveRound", { round: d });
-      toast("הסיבוב נשמר", "ok");
+      toast("נשמר", "ok");
       onDone();
     } catch (e) {
       toast((e as Error).message, "err", 5000);
@@ -317,7 +436,7 @@ function RoundForm({ value, game, view, onDone }: { value: RoundRec | null; game
       </div>
       <label className="field">
         <span>הסבר קצר (לא חובה)</span>
-        <input value={d.note} onChange={(e) => set({ note: e.target.value })} placeholder="החוקים של האתגר" />
+        <input value={d.note} onChange={(e) => set({ note: e.target.value })} placeholder="החוקים, ואיך יודעים מי צדק" />
       </label>
 
       <div className="field">
@@ -337,7 +456,7 @@ function RoundForm({ value, game, view, onDone }: { value: RoundRec | null; game
       </div>
 
       <fieldset className="field" disabled={locked}>
-        <legend>אפשרויות {locked && <small className="muted">(אחרי פתיחת הסיבוב אי אפשר לשנות)</small>}</legend>
+        <legend>אפשרויות {locked && <small className="muted">(אחרי הפתיחה אי אפשר לשנות)</small>}</legend>
         {d.options.map((o, i) => (
           <div key={i} className="opt-edit">
             {o.playerId && players.find((p) => p.id === o.playerId) && <Avatar p={players.find((p) => p.id === o.playerId)!} size={32} />}
@@ -377,7 +496,7 @@ function RoundForm({ value, game, view, onDone }: { value: RoundRec | null; game
       </fieldset>
 
       <fieldset className="field" disabled={locked}>
-        <legend>מי משתתף באתגר (ולכן לא מהמר)</legend>
+        <legend>מי בתוך האתגר (ולכן לא מהמר)</legend>
         <div className="player-chips">
           {players.map((p) => (
             <button key={p.id} type="button" className={cls("pchip", d.noBet.includes(p.id) && "on")} onClick={() => toggleNoBet(p.id)}>
@@ -397,9 +516,15 @@ function RoundForm({ value, game, view, onDone }: { value: RoundRec | null; game
           <input type="number" inputMode="numeric" value={d.maxBet} onChange={(e) => set({ maxBet: Number(e.target.value) })} />
         </label>
         <label className="field">
-          <span>טיימר (שניות)</span>
-          <input type="number" inputMode="numeric" value={d.seconds} onChange={(e) => set({ seconds: Number(e.target.value) })} />
+          <span>בונוס הבנק</span>
+          <input type="number" inputMode="numeric" value={d.bonus} onChange={(e) => set({ bonus: Number(e.target.value) })} />
         </label>
+        {d.kind === "challenge" && (
+          <label className="field">
+            <span>טיימר (שניות)</span>
+            <input type="number" inputMode="numeric" value={d.seconds} onChange={(e) => set({ seconds: Number(e.target.value) })} />
+          </label>
+        )}
       </fieldset>
 
       <div className="sheet-actions">
