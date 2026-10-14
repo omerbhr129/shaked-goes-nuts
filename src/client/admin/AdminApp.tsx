@@ -9,6 +9,7 @@ import { Avatar, ConnBanner, Marquee, Money, MuteButton, Sheet, ask, toast } fro
 import { MissionsTab } from "./Missions";
 import { PlayersTab } from "./Players";
 import { RoundsTab } from "./Rounds";
+import { RodeoItay } from "../rodeo";
 
 // /admin#key=123456 logs the host in once and keeps the code on this device
 {
@@ -50,6 +51,7 @@ export function AdminApp() {
     return (
       <div className="splash">
         <Marquee size="m" />
+        <RodeoItay size={220} />
       </div>
     );
   if (!view.admin) return <AdminLogin game={game} />;

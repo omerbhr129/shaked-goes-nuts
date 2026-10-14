@@ -8,12 +8,14 @@ import { BetTab } from "./BetTab";
 import { BoardTab } from "./BoardTab";
 import { JoinScreen } from "./Join";
 import { MissionsTab } from "./MissionsTab";
+import { RodeoItay, useIntro } from "../rodeo";
 import { FeedWatcher, MissionWatcher, ResultOverlay } from "./Overlays";
 
 type Tab = "bet" | "missions" | "board";
 
 export function PlayerApp() {
   const { game, view, status } = useGame("player");
+  const intro = useIntro();
   const [tab, setTab] = useState<Tab>("bet");
   // on a laptop / big screen everything sits side by side instead of behind tabs
   const wide = useMedia("(min-width: 1080px)");
@@ -36,7 +38,7 @@ export function PlayerApp() {
     lastOpen.current = openKey;
   }, [openKey]);
 
-  if (!view) return <Splash />;
+  if (!view || intro) return <Splash />;
   if (!view.me) return <JoinScreen game={game} view={view} />;
   const me = view.pub.players.find((p) => p.id === view.me!.id);
   if (!me) return <Splash />;
@@ -210,6 +212,7 @@ export function Splash() {
   return (
     <div className="splash">
       <Marquee size="m" />
+      <RodeoItay size={250} />
       <p className="splash-text">מחברים אתכם לבורסה…</p>
     </div>
   );

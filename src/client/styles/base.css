@@ -862,3 +862,187 @@ fieldset[disabled] {
 .funny-face img {
   object-position: center 30%;
 }
+
+/* ---------- loading screen: the groom on the mechanical almond ---------- */
+
+.rodeo {
+  max-width: 82vw;
+}
+
+.rodeo svg {
+  display: block;
+  overflow: visible;
+}
+
+.rd-bull,
+.rd-rider,
+.rd-head,
+.rd-wave,
+.rd-shadow {
+  transform-box: view-box;
+  animation-duration: 1.25s;
+  animation-timing-function: cubic-bezier(0.45, 0, 0.55, 1);
+  animation-iteration-count: infinite;
+}
+
+.rd-bull {
+  transform-origin: 170px 318px;
+  animation-name: rd-buck;
+}
+
+.rd-rider {
+  transform-origin: 168px 222px;
+  animation-name: rd-ride;
+  animation-delay: -0.1s;
+}
+
+.rd-head {
+  transform-origin: 165px 138px;
+  animation: rd-bobble 0.42s ease-in-out infinite alternate;
+  filter: drop-shadow(0 4px 6px rgba(0, 0, 0, 0.45));
+}
+
+.rd-wave {
+  transform-origin: 194px 156px;
+  animation: rd-wave 0.38s ease-in-out infinite alternate;
+}
+
+.rd-shadow {
+  transform-origin: 166px 338px;
+  animation-name: rd-shadow;
+}
+
+.rd-fly,
+.rd-steam circle {
+  transform-box: fill-box;
+  transform-origin: center;
+  opacity: 0;
+}
+
+.rd-fly {
+  animation: rd-fly 1.6s ease-out infinite;
+}
+
+.rd-steam circle {
+  animation: rd-steam 1.25s ease-out infinite;
+}
+
+@keyframes rd-buck {
+  0%,
+  100% {
+    transform: rotate(-9deg) translateY(0);
+  }
+  30% {
+    transform: rotate(6deg) translateY(-22px);
+  }
+  55% {
+    transform: rotate(11deg) translateY(0);
+  }
+  80% {
+    transform: rotate(-3deg) translateY(-12px);
+  }
+}
+
+@keyframes rd-ride {
+  0%,
+  100% {
+    transform: rotate(7deg) translateY(0);
+  }
+  30% {
+    transform: rotate(-6deg) translateY(-8px);
+  }
+  55% {
+    transform: rotate(-10deg) translateY(2px);
+  }
+  80% {
+    transform: rotate(2deg) translateY(-4px);
+  }
+}
+
+@keyframes rd-bobble {
+  from {
+    transform: rotate(-8deg);
+  }
+  to {
+    transform: rotate(7deg);
+  }
+}
+
+@keyframes rd-wave {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(26deg);
+  }
+}
+
+@keyframes rd-shadow {
+  0%,
+  100% {
+    transform: scaleX(1);
+    opacity: 0.45;
+  }
+  30% {
+    transform: scaleX(0.74);
+    opacity: 0.22;
+  }
+  55% {
+    transform: scaleX(1.05);
+    opacity: 0.5;
+  }
+  80% {
+    transform: scaleX(0.85);
+    opacity: 0.3;
+  }
+}
+
+@keyframes rd-fly {
+  0% {
+    transform: translate(0, 0) rotate(0) scale(0.6);
+    opacity: 0;
+  }
+  12% {
+    opacity: 1;
+  }
+  100% {
+    transform: translate(var(--dx), var(--dy)) rotate(var(--r)) scale(1.1);
+    opacity: 0;
+  }
+}
+
+@keyframes rd-steam {
+  0% {
+    transform: translate(0, 0) scale(0.4);
+    opacity: 0;
+  }
+  20% {
+    opacity: 0.85;
+  }
+  100% {
+    transform: translate(-28px, -8px) scale(1.4);
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rd-bull,
+  .rd-rider,
+  .rd-head,
+  .rd-wave,
+  .rd-shadow,
+  .rd-fly,
+  .rd-steam circle {
+    animation: none;
+  }
+}
+
+.tv-intro {
+  display: grid;
+  justify-items: center;
+  gap: 10px;
+}
+
+.tv-intro .splash-text {
+  font-size: 34px;
+}

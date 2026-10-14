@@ -2,6 +2,7 @@ import { AnimatePresence, motion } from "motion/react";
 import { type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { ClientView, FeedEvent, PlayerPub, TvMode, WheelSpin } from "../../shared/types";
 import { cls, keepAwake } from "../lib";
+import { RodeoItay, useIntro } from "../rodeo";
 import { useGame } from "../net";
 import { sfx, silence, unlockAudio } from "../sound";
 import { Avatar, Marquee, Ticker, burst } from "../ui";
@@ -37,6 +38,7 @@ function Stage({ children }: { children: ReactNode }) {
 
 export function TvApp() {
   const { game, view, status } = useGame("tv");
+  const intro = useIntro(PREVIEW ? 0 : 3200);
   const [armed, setArmed] = useState(PREVIEW);
   useTvSounds(view);
 
@@ -52,11 +54,15 @@ export function TvApp() {
     setArmed(true);
   };
 
-  if (!view)
+  if (!view || (intro && !PREVIEW))
     return (
       <Stage>
         <div className="tv-frame tv-center">
-          <Marquee size="l" lights />
+          <div className="tv-intro">
+            <Marquee size="l" lights />
+            <RodeoItay size={520} />
+            <p className="splash-text">פותחים את הבורסה…</p>
+          </div>
         </div>
       </Stage>
     );
