@@ -550,6 +550,8 @@ const handOf = (s: GameState, pid: ID) => s.missions.filter((m) => m.assignedTo 
 
 function fits(s: GameState, m: Mission, p: PlayerRec) {
   if (!(m.audience === "all" || (m.audience === "groom") === p.isGroom)) return false;
+  // "תגרום לאיתמר ..." never goes to איתמר
+  if (p.name.length >= 2 && new RegExp(`(^|[^\u0590-\u05FF])[לבמשו]?${p.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}([^\u0590-\u05FF]|$)`).test(m.template)) return false;
   const slots = slotsOf(m.template);
   const others = s.players.length - 1 - (slots.has("G") ? 1 : 0);
   if (slots.has("G")) {

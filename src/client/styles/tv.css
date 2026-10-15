@@ -2519,6 +2519,15 @@ html.is-tv body {
   gap: 22px 26px;
 }
 
+.lobby-crowd.many {
+  grid-template-columns: repeat(5, 122px);
+  gap: 16px 18px;
+}
+
+.lobby-crowd.many .crowd-p {
+  font-size: 22px;
+}
+
 .crowd-p {
   display: grid;
   justify-items: center;
@@ -2701,6 +2710,15 @@ html.is-tv body {
   align-content: center;
   gap: 22px 26px;
   padding: 0 30px;
+}
+
+.vote-tiles.many {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 18px 18px;
+}
+
+.vote-tiles.many .vote-tile-name {
+  font-size: 30px;
 }
 
 .vote-tile {
@@ -2918,6 +2936,19 @@ html.is-tv body {
   transition:
     opacity 0.4s,
     filter 0.4s;
+}
+
+.photo-wall.many {
+  gap: 20px 22px;
+}
+
+.photo-wall.many .photo-card {
+  width: 214px;
+  padding: 9px 9px 7px;
+}
+
+.photo-wall.many .photo-card figcaption {
+  font-size: 22px;
 }
 
 .photo-card img {

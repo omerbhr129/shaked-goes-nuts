@@ -106,10 +106,10 @@ export function Lobby({ view }: { view: ClientView }) {
             <motion.p key={nudge} className="lobby-nudge" initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }}>
               {NUDGES[nudge]}
             </motion.p>
-            <div className="lobby-crowd">
+            <div className={cls("lobby-crowd", players.length > 8 && "many")}>
               {players.map((p, i) => (
                 <motion.div key={p.id} className="crowd-p" initial={{ scale: 0, rotate: -10 }} animate={{ scale: 1, rotate: 0 }} transition={{ delay: i * 0.07, type: "spring", stiffness: 220, damping: 14 }}>
-                  <Avatar p={p} size={128} />
+                  <Avatar p={p} size={players.length > 8 ? 104 : 128} />
                   <span>{p.name}</span>
                 </motion.div>
               ))}
@@ -720,14 +720,14 @@ export function VoteScreen({ view, game }: { view: ClientView; game: Game }) {
         {r.title}
       </h1>
 
-      <div className="vote-tiles">
+      <div className={cls("vote-tiles", r.options.length > 8 && "many")}>
         {r.options.map((o) => {
           const p = o.playerId ? people[o.playerId] : undefined;
           const who = votes.filter((b) => b.optionId === o.id);
           const isChosen = counted && !!o.playerId && r.losers.includes(o.playerId) && !r.refunded;
           return (
             <motion.div key={o.id} layout className={cls("vote-tile", isChosen && "chosen", counted && !isChosen && "dim")}>
-              {p && <Avatar p={p} size={118} />}
+              {p && <Avatar p={p} size={r.options.length > 8 ? 96 : 118} />}
               <span className="vote-tile-name">{o.label}</span>
               {counted && (
                 <>
@@ -867,7 +867,7 @@ export function PhotoScreen({ view, game }: { view: ClientView; game: Game }) {
       </header>
       <h1 className="tvround-title">{r.title}</h1>
 
-      <div className="photo-wall">
+      <div className={cls("photo-wall", r.options.length > 6 && "many")}>
         {r.options.length === 0 && <div className="photo-empty">עוד לא הגיעו תמונות… 📸</div>}
         {r.options.map((o, i) => {
           const won = counted && winners.includes(o);

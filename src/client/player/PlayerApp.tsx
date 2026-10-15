@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { ClientView, PlayerPub } from "../../shared/types";
-import { cls, fmt, kingAndLast, lsGet, lsSet, resizeImage, useMedia } from "../lib";
+import { cls, fmt, keepAwake, kingAndLast, lsGet, lsSet, resizeImage, useMedia } from "../lib";
 import { creds, useGame, type Game } from "../net";
 import { setMuted, sfx, useMuted } from "../sound";
 import { Avatar, Coin, ConnBanner, Led, Marquee, Sheet, ask, toast } from "../ui";
@@ -48,6 +48,18 @@ export function PlayerApp() {
   useEffect(() => {
     if (openKey && openKey !== lastOpen.current) setTab("bet");
     lastOpen.current = openKey;
+  }, [openKey]);
+
+  // while a round takes bets, the phone doesn't lock itself in the middle of it
+  useEffect(() => {
+    if (!openKey) return;
+    let release: (() => void) | null = null;
+    let gone = false;
+    void keepAwake().then((r) => (gone ? r() : (release = r)));
+    return () => {
+      gone = true;
+      release?.();
+    };
   }, [openKey]);
 
   if (!view || intro) return <Splash />;
@@ -161,6 +173,9 @@ function HowTo({ view, me, open, onClose }: { view: ClientView; me: PlayerPub; o
         )}
         <li>
           <b>✏️ השם והתמונה שלך:</b> לוחצים על התמונה שלך למעלה.
+        </li>
+        <li>
+          <b>📲 כמו אפליקציה:</b> שיתוף ← ״הוספה למסך הבית״, והמשחק נפתח על כל המסך, בלי שורת הכתובת.
         </li>
         <li>
           <b>🍋 המקום האחרון בבוקר:</b> {prizeLast}.

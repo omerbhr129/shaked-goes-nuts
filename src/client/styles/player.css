@@ -1,6 +1,12 @@
 /* ---------- phone shell ---------- */
 
+/* phones read at night, after a few drinks: everything a size up */
+html:has(.phone) {
+  font-size: 17px;
+}
+
 .phone {
+  font-size: 18px;
   max-width: 560px;
   min-height: 100dvh;
   margin: 0 auto;

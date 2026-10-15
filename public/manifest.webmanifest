@@ -1,0 +1,11 @@
+{
+  "name": "SHAKED GOES NUTS",
+  "short_name": "הבורסה של איתי",
+  "lang": "he",
+  "dir": "rtl",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#04170F",
+  "theme_color": "#04170F",
+  "icons": [{ "src": "/apple-touch-icon.png", "sizes": "180x180", "type": "image/png", "purpose": "any" }]
+}
