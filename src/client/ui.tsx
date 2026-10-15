@@ -452,15 +452,15 @@ export function burst(kind: "win" | "big" | "coins" = "win") {
   const colors = ["#E9B949", "#FFE39A", "#F3E3C3", "#5CF29B", "#B07A45"];
   if (kind === "coins") {
     // gold coins as round confetti (an emoji shape renders as white squares in Safari)
-    confetti({ particleCount: 46, spread: 100, startVelocity: 38, gravity: 1.1, origin: { y: 0.35 }, shapes: ["circle"], colors: ["#E9B949", "#FFE39A", "#C9922F"], scalar: 1.7, ticks: 220 });
+    confetti({ zIndex: 300, particleCount: 46, spread: 100, startVelocity: 38, gravity: 1.1, origin: { y: 0.35 }, shapes: ["circle"], colors: ["#E9B949", "#FFE39A", "#C9922F"], scalar: 1.7, ticks: 220 });
     return;
   }
-  confetti({ particleCount: kind === "big" ? 160 : 90, spread: 85, startVelocity: 45, origin: { y: 0.6 }, colors, scalar: 1.1 });
+  confetti({ zIndex: 300, particleCount: kind === "big" ? 160 : 90, spread: 85, startVelocity: 45, origin: { y: 0.6 }, colors, scalar: 1.1 });
   if (kind === "big") {
-    window.setTimeout(() => confetti({ particleCount: 110, angle: 60, spread: 70, origin: { x: 0, y: 0.7 }, colors }), 250);
-    window.setTimeout(() => confetti({ particleCount: 110, angle: 120, spread: 70, origin: { x: 1, y: 0.7 }, colors }), 420);
+    window.setTimeout(() => confetti({ zIndex: 300, particleCount: 110, angle: 60, spread: 70, origin: { x: 0, y: 0.7 }, colors }), 250);
+    window.setTimeout(() => confetti({ zIndex: 300, particleCount: 110, angle: 120, spread: 70, origin: { x: 1, y: 0.7 }, colors }), 420);
     window.setTimeout(
-      () => confetti({ particleCount: 50, spread: 120, startVelocity: 40, origin: { y: 0.3 }, shapes: ["circle"], colors: ["#E9B949", "#FFE39A", "#C9922F"], scalar: 1.8, ticks: 260 }),
+      () => confetti({ zIndex: 300, particleCount: 50, spread: 120, startVelocity: 40, origin: { y: 0.3 }, shapes: ["circle"], colors: ["#E9B949", "#FFE39A", "#C9922F"], scalar: 1.8, ticks: 260 }),
       600,
     );
   }

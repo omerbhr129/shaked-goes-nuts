@@ -140,6 +140,12 @@ export function MissionWatcher({ view }: { view: ClientView }) {
   return <FlashView flash={flash} onClose={() => setFlash(null)} />;
 }
 
+/** Runs fn once no other full-screen card is showing (a round's result comes first). */
+function whenClear(fn: () => void, wait = 1500) {
+  const go = () => (document.querySelector(".flash") ? window.setTimeout(go, 1500) : fn());
+  window.setTimeout(go, wait);
+}
+
 /** Public happenings as toasts; the drinking wheel lands on you as a full-screen moment. */
 export function FeedWatcher({ view, meId }: { view: ClientView; meId: string }) {
   const [flash, setFlash] = useFlash();
@@ -196,13 +202,18 @@ export function FeedWatcher({ view, meId }: { view: ClientView; meId: string }) 
       } else if (e.kind === "caught" && e.players[1] === meId) {
         // the burned-mission flash covers this
       } else if (e.kind === "king" && e.players[0] === meId) {
-        setFlash({ kind: "win", title: "👑 אתה המלך החדש!", sub: e.data?.line ?? e.text });
-        sfx.fanfare();
-        burst("win");
+        // after the round's own result card, never on top of it
+        whenClear(() => {
+          setFlash({ kind: "win", title: "👑 אתה המלך החדש!", sub: e.data?.line ?? e.text });
+          sfx.fanfare();
+          burst("win");
+        }, 6000);
       } else if (e.kind === "streak" && e.players[0] === meId) {
-        setFlash({ kind: "win", amount: e.data?.amount, title: `🔥 ${e.data?.streak ?? 3} ברצף!`, sub: "הבנק מוסיף לך בונוס. תמשיך ככה" });
-        sfx.win();
-        burst("coins");
+        whenClear(() => {
+          setFlash({ kind: "win", amount: e.data?.amount, title: `🔥 ${e.data?.streak ?? 3} ברצף!`, sub: "הבנק מוסיף לך בונוס. תמשיך ככה" });
+          sfx.win();
+          burst("coins");
+        }, 6000);
       } else if (e.kind === "card" && e.data?.card === "drink" && e.players.includes(meId)) {
         setFlash({ kind: "drink", title: "🃏 החתן החליט: אתה שותה!", sub: e.data?.line ?? e.text });
         sfx.gotcha();
