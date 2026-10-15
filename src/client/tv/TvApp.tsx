@@ -44,14 +44,10 @@ export function TvApp() {
   const [armed, setArmed] = useState(PREVIEW);
   useTvSounds(view);
 
-  const arm = async () => {
+  // sound only: full screen has its own button (and the F key), so there is always a way back out
+  const arm = () => {
     unlockAudio();
     sfx.join();
-    try {
-      await document.documentElement.requestFullscreen?.();
-    } catch {
-      /* fullscreen not allowed here */
-    }
     void keepAwake();
     setArmed(true);
   };
@@ -105,10 +101,61 @@ export function TvApp() {
       </Stage>
       {!armed && (
         <button type="button" className="tv-arm" onClick={arm}>
-          🔊 לחצו כאן להפעלת סאונד ומסך מלא
+          🔊 לחצו כאן להפעלת סאונד
         </button>
       )}
+      {!PREVIEW && <FullscreenToggle />}
     </>
+  );
+}
+
+type FsDoc = Document & { webkitFullscreenElement?: Element | null; webkitExitFullscreen?: () => Promise<void> | void };
+type FsEl = HTMLElement & { webkitRequestFullscreen?: () => Promise<void> | void };
+const inFullscreen = () => !!(document.fullscreenElement || (document as FsDoc).webkitFullscreenElement);
+
+async function toggleFullscreen() {
+  const d = document as FsDoc;
+  const el = document.documentElement as FsEl;
+  try {
+    if (inFullscreen()) await (d.exitFullscreen ? d.exitFullscreen() : d.webkitExitFullscreen?.());
+    else await (el.requestFullscreen ? el.requestFullscreen() : el.webkitRequestFullscreen?.());
+  } catch {
+    /* not allowed right now */
+  }
+}
+
+/** Full screen in and out: a button that shows up when the mouse moves, and the F key (כ on a Hebrew keyboard). */
+function FullscreenToggle() {
+  const [on, setOn] = useState(inFullscreen);
+  const [shown, setShown] = useState(true);
+  useEffect(() => {
+    const sync = () => setOn(inFullscreen());
+    let hide = window.setTimeout(() => setShown(false), 6000);
+    const wake = () => {
+      setShown(true);
+      window.clearTimeout(hide);
+      hide = window.setTimeout(() => setShown(false), 3000);
+    };
+    const key = (e: KeyboardEvent) => {
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      if (e.key === "f" || e.key === "F" || e.key === "כ") void toggleFullscreen();
+    };
+    document.addEventListener("fullscreenchange", sync);
+    document.addEventListener("webkitfullscreenchange", sync);
+    window.addEventListener("mousemove", wake);
+    window.addEventListener("keydown", key);
+    return () => {
+      window.clearTimeout(hide);
+      document.removeEventListener("fullscreenchange", sync);
+      document.removeEventListener("webkitfullscreenchange", sync);
+      window.removeEventListener("mousemove", wake);
+      window.removeEventListener("keydown", key);
+    };
+  }, []);
+  return (
+    <button type="button" className={cls("tv-fs", shown && "shown")} onClick={() => void toggleFullscreen()}>
+      {on ? "✕ יציאה ממסך מלא (F)" : "⛶ מסך מלא (F)"}
+    </button>
   );
 }
 

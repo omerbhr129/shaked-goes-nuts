@@ -2300,3 +2300,29 @@ html.is-tv body {
   font-size: 54px;
   color: var(--gold-hi);
 }
+
+/* full screen in and out, out of the way until the mouse moves */
+.tv-fs {
+  position: fixed;
+  bottom: 14px;
+  left: 14px;
+  z-index: 70;
+  padding: 10px 18px;
+  border: 0;
+  border-radius: 999px;
+  font: inherit;
+  font-weight: 800;
+  font-size: 0.95rem;
+  color: var(--ink);
+  background: linear-gradient(180deg, var(--gold-hi), var(--gold));
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.55);
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.3s ease;
+}
+
+.tv-fs.shown {
+  opacity: 1;
+  pointer-events: auto;
+}
