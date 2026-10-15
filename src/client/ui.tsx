@@ -97,14 +97,25 @@ export function FunnyFace({ p, size = 200, className }: { p: AvatarPerson; size?
   );
 }
 
+/** The leader as an AI king on a throne of almonds (the profile photo if the picture is missing). */
+export function KingFace({ p, size }: { p: AvatarPerson; size: number }) {
+  const [failed, setFailed] = useState(false);
+  if (failed) return <Avatar p={p} size={size} badge="👑" />;
+  return (
+    <span className="avatar king-face" style={{ width: size, height: size }}>
+      <img src={`/photos/ai/king/${p.id}.jpg`} alt="" draggable={false} onError={() => setFailed(true)} />
+    </span>
+  );
+}
+
 /** Top three on steps: second, first, third. */
-export function Podium({ list, size = "m", value }: { list: PlayerPub[]; size?: "s" | "m" | "l"; value?: (p: PlayerPub) => ReactNode }) {
+export function Podium({ list, size = "m", value, king }: { list: PlayerPub[]; size?: "s" | "m" | "l"; value?: (p: PlayerPub) => ReactNode; king?: boolean }) {
   const [first, second, third] = list;
   const dims = { s: [52, 68], m: [84, 112], l: [150, 210] }[size];
   const step = (p: PlayerPub | undefined, place: number) =>
     p && (
       <div className={cls("pod", `pod-${place}`)} key={p.id} dir="rtl">
-        <Avatar p={p} size={place === 1 ? dims[1] : dims[0]} badge={place === 1 ? "👑" : null} />
+        {king && place === 1 ? <KingFace p={p} size={dims[1]} /> : <Avatar p={p} size={place === 1 ? dims[1] : dims[0]} badge={place === 1 ? "👑" : null} />}
         <span className="pod-name">{p.name}</span>
         <span className="pod-value">{value ? value(p) : <Money n={p.balance} size={size === "l" ? 26 : 15} />}</span>
         <span className="pod-block num">{place}</span>

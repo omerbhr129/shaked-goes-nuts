@@ -2,10 +2,11 @@ import { AnimatePresence, motion } from "motion/react";
 import { type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { ClientView, FeedEvent, PlayerPub, TvMode, WheelSpin } from "../../shared/types";
 import { cls, keepAwake } from "../lib";
-import { RodeoItay, useIntro } from "../rodeo";
-import { useGame } from "../net";
-import { sfx, silence, unlockAudio } from "../sound";
+import { RodeoPhoto, useIntro } from "../rodeo";
+import { type Game, useGame, useServerNow } from "../net";
+import { prefetchLine, sfx, silence, speak, unlockAudio } from "../sound";
 import { Avatar, Marquee, Ticker, burst } from "../ui";
+import { BettingVibes, DRAW_MS, DrawReel, Spotlight, holdTv, tvBusy } from "./Moments";
 import { AwardsScreen, BoardScreen, Lobby, NightScreen, QuizScreen, RevealScreen, RoundScreen, WinnerScreen } from "./Screens";
 
 // the host screen embeds a silent copy of the TV as a preview
@@ -59,9 +60,8 @@ export function TvApp() {
       <Stage>
         <div className="tv-frame tv-center">
           <div className="tv-intro">
-            <Marquee size="l" lights />
-            <RodeoItay size={520} />
-            <p className="splash-text">פותחים את הבורסה…</p>
+            <Marquee size="m" lights />
+            <RodeoPhoto size={640} />
           </div>
         </div>
       </Stage>
@@ -92,8 +92,9 @@ export function TvApp() {
             </motion.div>
           </AnimatePresence>
           <Ticker players={view.pub.players} start={view.pub.settings.startBalance} />
+          <RoundExtras view={view} game={game} />
           <NewsBanner feed={view.pub.feed} players={view.pub.players} skipShots={mode === "round"} />
-          <WheelOverlay wheel={view.pub.wheel} players={view.pub.players} offset={game.offset} />
+          <WheelOverlay wheel={view.pub.wheel} players={view.pub.players} offset={game.offset} feed={view.pub.feed} />
           <span className={cls("tv-conn", status)} aria-hidden="true" />
         </div>
       </Stage>
@@ -128,9 +129,26 @@ function useTvSounds(view: ClientView | null) {
   }, [view]);
 }
 
-const NEWS_TAG: Record<string, string> = { mission: "מבזק", caught: "נתפס!", miss: "פספוס", bailout: "חילוץ", result: "הוכרע", shot: "שוט!" };
+/** While a round is live: the draw reel when it was picked at random, then music and Itay popping up until bets close. */
+function RoundExtras({ view, game }: { view: ClientView; game: Game }) {
+  const r = view.pub.round;
+  const draw = view.pub.draw;
+  const live = !!r && r.status === "open";
+  const now = useServerNow(game, live, 250);
+  const drawing = live && !!draw && draw.roundId === r!.id && now < draw.at + DRAW_MS;
+  const betting = live && !drawing && view.pub.tv.mode === "round" && (r!.closesAt === null || now < r!.closesAt);
+  return (
+    <>
+      <BettingVibes active={betting} />
+      <AnimatePresence>{drawing && draw && <DrawReel key={draw.at} draw={draw} />}</AnimatePresence>
+    </>
+  );
+}
 
-/** Breaking news strip for things that just happened in the room. */
+const NEWS_TAG: Record<string, string> = { mission: "מבזק", caught: "נתפס!", miss: "פספוס", bailout: "חילוץ", result: "הוכרע", shot: "שוט!", broke: "פשט רגל" };
+const BIG = new Set(["mission", "broke"]);
+
+/** Breaking news: a strip for small things, the whole screen for a finished mission or someone going broke. */
 function NewsBanner({ feed, players, skipShots }: { feed: FeedEvent[]; players: PlayerPub[]; skipShots: boolean }) {
   const [queue, setQueue] = useState<FeedEvent[]>([]);
   const seen = useRef<Set<string> | null>(null);
@@ -145,18 +163,50 @@ function NewsBanner({ feed, players, skipShots }: { feed: FeedEvent[]; players: 
     if (fresh.length) setQueue((q) => [...q, ...fresh]);
   }, [feed]);
 
-  const current = queue[0];
+  // wait while a round's own moments are playing, then show it and read it out
+  const next = queue[0];
+  const [ready, setReady] = useState<string | null>(null);
+  useEffect(() => {
+    if (!next) return;
+    prefetchLine(`feed:${next.id}`);
+    const t = window.setTimeout(() => setReady(next.id), Math.max(0, tvBusy.until - Date.now()));
+    return () => window.clearTimeout(t);
+  }, [next?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  const current = next && ready === next.id ? next : undefined;
+
   useEffect(() => {
     if (!current) return;
-    if (current.kind === "mission") sfx.alert();
+    const big = BIG.has(current.kind);
+    if (current.kind === "mission") {
+      sfx.siren();
+      sfx.boom();
+    } else if (current.kind === "broke") sfx.sad();
     else if (current.kind === "caught") sfx.gotcha();
     else if (current.kind === "miss") sfx.lose();
     else sfx.coin();
-    const id = window.setTimeout(() => setQueue((q) => q.slice(1)), 7500);
+    speak(`feed:${current.id}`);
+    const ms = current.kind === "broke" ? 10_000 : big ? 8500 : 7500;
+    if (big) holdTv(ms);
+    const id = window.setTimeout(() => setQueue((q) => q.slice(1)), ms);
     return () => window.clearTimeout(id);
   }, [current?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const people = current ? current.players.map((id) => players.find((p) => p.id === id)).filter((p): p is PlayerPub => !!p) : [];
+  if (current && BIG.has(current.kind) && people.length)
+    return (
+      <AnimatePresence>
+        <Spotlight
+          key={current.id}
+          kind={current.kind === "broke" ? "broke" : "mission"}
+          title={current.kind === "broke" ? "💸 פשט רגל!" : "🚨 מבזק!"}
+          people={people.slice(0, 1)}
+          line={current.data?.line ?? current.text}
+          sub={current.kind === "mission" ? "מה הוא עשה? מי שמנחש נכון בטלפון, גונב לו את השקדים 🕵️" : "אחרי שהוא מבצע, המנחה מאשר לו חילוץ מהבנק"}
+          task={current.data?.task}
+          amount={current.data?.amount}
+        />
+      </AnimatePresence>
+    );
   return (
     <AnimatePresence>
       {current && (
@@ -201,7 +251,7 @@ const short = (label: string) => {
 };
 
 /** The drinking / punishment wheel: spins on every new spin the host triggers, then shows who it landed on. */
-function WheelOverlay({ wheel, players, offset }: { wheel: WheelSpin | null; players: PlayerPub[]; offset: number }) {
+function WheelOverlay({ wheel, players, offset, feed }: { wheel: WheelSpin | null; players: PlayerPub[]; offset: number; feed: FeedEvent[] }) {
   const [phase, setPhase] = useState<"spin" | "done" | null>(null);
   const shown = useRef<string | null>(wheel?.id ?? null);
 
@@ -218,11 +268,14 @@ function WheelOverlay({ wheel, players, offset }: { wheel: WheelSpin | null; pla
       gap *= 1.07;
       t += gap;
     }
+    const said = feed.find((e) => e.kind === "wheel" && e.ref === wheel.id);
+    if (said) prefetchLine(`feed:${said.id}`);
     timers.push(
       window.setTimeout(() => {
         setPhase("done");
         sfx.ding();
         burst("win");
+        if (said) speak(`feed:${said.id}`);
       }, 5400),
     );
     timers.push(window.setTimeout(() => setPhase(null), 16_000));

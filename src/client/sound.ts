@@ -32,6 +32,7 @@ for (const ev of ["pointerdown", "keydown", "touchend"]) window.addEventListener
 
 export function setMuted(m: boolean) {
   muted = m;
+  if (m) stopMusic();
   try {
     localStorage.setItem("sgn.muted", m ? "1" : "0");
   } catch {
@@ -53,8 +54,13 @@ export function useMuted() {
 }
 
 function tone(freq: number, at: number, dur: number, type: OscillatorType = "sine", peak = 0.2, glideTo?: number) {
+  if (!ctx) return;
+  voice(ctx.currentTime + at, freq, dur, type, peak, glideTo);
+}
+
+/** One note at an absolute time, into the given bus (the music has its own, so it can be ducked). */
+function voice(t0: number, freq: number, dur: number, type: OscillatorType, peak: number, glideTo?: number, bus?: AudioNode) {
   if (!ctx || !master) return;
-  const t0 = ctx.currentTime + at;
   const o = ctx.createOscillator();
   const g = ctx.createGain();
   o.type = type;
@@ -63,14 +69,18 @@ function tone(freq: number, at: number, dur: number, type: OscillatorType = "sin
   g.gain.setValueAtTime(0.0001, t0);
   g.gain.exponentialRampToValueAtTime(peak, t0 + 0.012);
   g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
-  o.connect(g).connect(master);
+  o.connect(g).connect(bus ?? master);
   o.start(t0);
   o.stop(t0 + dur + 0.05);
 }
 
 function noise(at: number, dur: number, peak = 0.2, freq = 2000, q = 0.8) {
+  if (!ctx) return;
+  hiss(ctx.currentTime + at, dur, peak, freq, q);
+}
+
+function hiss(t0: number, dur: number, peak: number, freq: number, q: number, bus?: AudioNode) {
   if (!ctx || !master) return;
-  const t0 = ctx.currentTime + at;
   const len = Math.max(1, Math.floor(ctx.sampleRate * dur));
   const buf = ctx.createBuffer(1, len, ctx.sampleRate);
   const d = buf.getChannelData(0);
@@ -83,7 +93,7 @@ function noise(at: number, dur: number, peak = 0.2, freq = 2000, q = 0.8) {
   f.Q.value = q;
   const g = ctx.createGain();
   g.gain.value = peak;
-  src.connect(f).connect(g).connect(master);
+  src.connect(f).connect(g).connect(bus ?? master);
   src.start(t0);
 }
 
@@ -174,6 +184,33 @@ export const sfx = {
       tone(659, 0, 0.12, "triangle", 0.15);
       tone(988, 0.1, 0.25, "triangle", 0.15);
     }),
+  boom: () =>
+    play(() => {
+      tone(90, 0, 0.7, "sine", 0.7, 32);
+      noise(0, 0.45, 0.6, 380, 0.5);
+      noise(0.03, 0.3, 0.35, 140, 0.4);
+    }),
+  siren: () =>
+    play(() => {
+      for (let i = 0; i < 2; i++) {
+        tone(620, i * 0.8, 0.4, "sawtooth", 0.05, 1050);
+        tone(1050, i * 0.8 + 0.4, 0.4, "sawtooth", 0.05, 620);
+      }
+    }),
+  /** the sad trombone: wah, wah, wah, waaah */
+  sad: () =>
+    play(() => {
+      const f = [311, 294, 277];
+      f.forEach((x, i) => tone(x, i * 0.42, 0.38, "sawtooth", 0.08, x * 0.96));
+      tone(262, 1.3, 1.2, "sawtooth", 0.08, 220);
+    }),
+  whoosh: () =>
+    play(() => {
+      noise(0, 0.35, 0.25, 900, 0.4);
+      noise(0.12, 0.35, 0.25, 2600, 0.4);
+    }),
+  boing: () => play(() => tone(170, 0, 0.4, "sine", 0.25, 720)),
+  pop: () => play(() => tone(520, 0, 0.09, "sine", 0.14, 1250)),
   fanfare: () =>
     play(() => {
       const seq: [number, number, number][] = [
@@ -193,3 +230,128 @@ export const sfx = {
       for (let i = 0; i < 8; i++) coinPing(1.5 + i * 0.08, 0.04);
     }),
 };
+
+/* ---------- the betting soundtrack: an original, silly casino loop, synthesized (no files, no rights issues) ---------- */
+
+const midi = (m: number) => 440 * 2 ** ((m - 69) / 12);
+const STEP = 60 / 140 / 2; // eighth notes at 140 bpm
+const CHORDS = [
+  [36, [60, 64, 67]],
+  [33, [57, 60, 64]],
+  [29, [53, 57, 60]],
+  [31, [55, 59, 62]],
+] as const;
+// eight bars of melody, eighth notes, 0 = rest
+const TUNE = [
+  [72, 0, 76, 79, 76, 0, 72, 74],
+  [76, 0, 72, 69, 72, 0, 76, 77],
+  [77, 81, 77, 72, 74, 0, 77, 76],
+  [74, 71, 67, 71, 74, 79, 0, 0],
+  [79, 0, 76, 72, 76, 0, 79, 81],
+  [81, 0, 76, 72, 69, 0, 72, 76],
+  [77, 0, 81, 84, 81, 77, 74, 77],
+  [76, 74, 72, 0, 67, 0, 72, 0],
+];
+
+let bus: GainNode | null = null;
+let musicTimer = 0;
+let nextAt = 0;
+let step = 0;
+
+function playStep(i: number, t: number) {
+  if (!bus) return;
+  const bar = Math.floor(i / 8) % TUNE.length;
+  const pos = i % 8;
+  const [root, chord] = CHORDS[bar % 4];
+  if (pos % 2 === 0) {
+    const bass = [0, 7, 12, 7][pos / 2];
+    voice(t, midi(root + bass), STEP * 1.6, "triangle", 0.32, undefined, bus);
+  } else for (const n of chord) voice(t, midi(n), 0.07, "square", 0.025, undefined, bus);
+  const m = TUNE[bar][pos];
+  if (m) voice(t, midi(m), STEP * 0.7, "square", 0.05, undefined, bus);
+  // drums: kick on 1 and 3, snare on 2 and 4, hats on every eighth
+  if (pos === 0 || pos === 4) voice(t, 120, 0.18, "sine", 0.5, 45, bus);
+  if (pos === 2 || pos === 6) hiss(t, 0.12, 0.22, 1800, 0.7, bus);
+  hiss(t, 0.03, 0.06, 8000, 1, bus);
+  // a slide whistle at the end of every fourth bar, because why not
+  if (pos === 6 && bar % 4 === 3) voice(t, 380, 0.32, "sine", 0.12, 1500, bus);
+}
+
+/** Start the betting music on this screen. Safe to call repeatedly. */
+export function startMusic() {
+  if (musicTimer || muted || silent) return;
+  unlockAudio();
+  if (!ctx || !master) return;
+  bus = ctx.createGain();
+  bus.gain.value = 0.55;
+  bus.connect(master);
+  step = 0;
+  nextAt = ctx.currentTime + 0.08;
+  musicTimer = window.setInterval(() => {
+    if (!ctx) return;
+    while (nextAt < ctx.currentTime + 0.3) {
+      playStep(step++, nextAt);
+      nextAt += STEP;
+    }
+  }, 60);
+}
+
+export function stopMusic() {
+  if (!musicTimer) return;
+  window.clearInterval(musicTimer);
+  musicTimer = 0;
+  const b = bus;
+  bus = null;
+  if (b && ctx) {
+    b.gain.setTargetAtTime(0.0001, ctx.currentTime, 0.08);
+    window.setTimeout(() => b.disconnect(), 600);
+  }
+}
+
+function duck(on: boolean) {
+  if (bus && ctx) bus.gain.setTargetAtTime(on ? 0.12 : 0.55, ctx.currentTime, 0.15);
+}
+
+/* ---------- the announcer: lines the game wrote, read out by the server's voice ---------- */
+
+const voices = new Map<string, Promise<string | null>>();
+
+function loadLine(ref: string) {
+  let p = voices.get(ref);
+  if (!p) {
+    p = fetch("/api/tts", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ref }) })
+      .then((r) => (r.ok ? r.blob() : null))
+      .then((b) => (b && b.size > 500 ? URL.createObjectURL(b) : null))
+      .catch(() => null);
+    voices.set(ref, p);
+  }
+  return p;
+}
+
+/** Start making the audio early, so it is ready when its moment comes. */
+export function prefetchLine(ref: string) {
+  if (!muted && !silent) void loadLine(ref);
+}
+
+let speaking: Promise<void> = Promise.resolve();
+
+/** Say a line out loud; lines queue up instead of talking over each other. */
+export function speak(ref: string) {
+  if (muted || silent) return;
+  const url = loadLine(ref);
+  speaking = speaking.then(async () => {
+    const u = await url;
+    if (!u || muted) return;
+    const a = new Audio(u);
+    duck(true);
+    await new Promise<void>((done) => {
+      const t = window.setTimeout(done, 20_000);
+      a.onended = a.onerror = () => {
+        window.clearTimeout(t);
+        done();
+      };
+      a.play().catch(() => done());
+    });
+    duck(false);
+  });
+}

@@ -16,10 +16,24 @@ export function RoundsTab({ game, view, run }: { game: Game; view: ClientView; r
   const [resolving, setResolving] = useState<RoundRec | null>(null);
   const live = view.pub.round;
   const busyElsewhere = live && (live.status === "open" || live.status === "closed");
+  const left = (kind: RoundKind) => rounds.filter((r) => r.kind === kind && r.status === "draft").length;
 
   return (
     <section className="rounds-tab">
       <div className="rounds-col stack">
+      {!busyElsewhere && (
+        <div className="draw-bar felt">
+          <p>אתם מחליטים מתי, המאגר מחליט מה. הטלוויזיה מגרילה מול כולם.</p>
+          <div className="row-actions">
+            <button type="button" className="btn btn-gold" disabled={!left("challenge")} onClick={() => run("drawRound", { kind: "challenge" }, "הוגרל אתגר")}>
+              🎰 אתגר אקראי <small>({left("challenge")})</small>
+            </button>
+            <button type="button" className="btn btn-gold" disabled={!left("quiz")} onClick={() => run("drawRound", { kind: "quiz" }, "הוגרלה שאלה")}>
+              ❓ שאלה אקראית <small>({left("quiz")})</small>
+            </button>
+          </div>
+        </div>
+      )}
       {live && (live.kind === "quiz" ? <LiveQuiz game={game} view={view} run={run} /> : <LiveRound game={game} view={view} run={run} />)}
 
       <div className="section-head">
@@ -315,13 +329,15 @@ function LiveRound({ game, view, run }: { game: Game; view: ClientView; run: Run
             <div key={o.id} className={cls("live-opt", r.winnerId === o.id && "win")}>
               <div className="live-opt-head">
                 <b>{o.label}</b>
-                <span className="live-opt-sum">
-                  <span className="odds-chip">{fmtX(multiplier(r, o.id))}</span>
-                  <span className="muted">{bs.length} הימורים</span>
-                  <Money n={total} size={14} />
-                </span>
+                {!open && (
+                  <span className="live-opt-sum">
+                    <span className="odds-chip">{fmtX(multiplier(r, o.id))}</span>
+                    <span className="muted">{bs.length} הימורים</span>
+                    <Money n={total} size={14} />
+                  </span>
+                )}
               </div>
-              {bs.length > 0 && (
+              {!open && bs.length > 0 && (
                 <div className="live-bettors">
                   {bs.map((b) => (
                     <span key={b.playerId} className="pill">
@@ -341,8 +357,19 @@ function LiveRound({ game, view, run }: { game: Game; view: ClientView; run: Run
           );
         })}
       </div>
-      {open && missing.length > 0 && <p className="muted">עוד לא הימרו: {missing.map((p) => p.name).join(", ")}</p>}
+      {open && (
+        <p className="muted">
+          🤫 ההימורים סודיים עד הסגירה (גם ממך).
+          {bets.length > 0 && ` הימרו: ${bets.map((b) => people[b.playerId]?.name).join(", ")}.`}
+          {missing.length > 0 && ` עוד לא: ${missing.map((p) => p.name).join(", ")}.`}
+        </p>
+      )}
       <div className="live-actions">
+        {open && bets.length === 0 && (
+          <button type="button" className="btn btn-ghost" onClick={() => run("drawRound", { kind: "challenge", redraw: true }, "הוגרל אתגר אחר")}>
+            🔄 להגריל אחר
+          </button>
+        )}
         {open && (
           <button type="button" className="btn btn-gold" onClick={() => run("closeRound", { roundId: r.id }, "ההימורים נסגרו")}>
             🔒 לסגור הימורים עכשיו
@@ -474,6 +501,11 @@ function LiveQuiz({ game, view, run }: { game: Game; view: ClientView; run: Run 
         </div>
       )}
       <div className="live-actions">
+        {open && answers.length === 0 && (
+          <button type="button" className="btn btn-ghost" onClick={() => run("drawRound", { kind: "quiz", redraw: true }, "הוגרלה שאלה אחרת")}>
+            🔄 להגריל אחרת
+          </button>
+        )}
         {open && (
           <button type="button" className="btn btn-gold" onClick={() => run("closeRound", { roundId: r.id }, "השאלה נסגרה")}>
             🔒 לסגור עכשיו

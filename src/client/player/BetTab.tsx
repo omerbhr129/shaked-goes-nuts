@@ -1,9 +1,10 @@
 import { AnimatePresence, motion } from "motion/react";
 import { type ReactNode, useEffect, useState } from "react";
 import type { ClientView, PlayerPub, RoundPub } from "../../shared/types";
-import { LETTERS, cls, fmt, fmtX, mmss, multiplier, potOf, projectedPayout, ranked } from "../lib";
+import { LETTERS, cls, fmt, mmss, potOf, projectedPayout, ranked } from "../lib";
 import { type Game, useServerNow } from "../net";
 import { sfx } from "../sound";
+import { RodeoItay } from "../rodeo";
 import { Avatar, Change, Coin, Money, Spark, toast } from "../ui";
 
 export function BetTab({ game, view, me }: { game: Game; view: ClientView; me: PlayerPub }) {
@@ -12,9 +13,11 @@ export function BetTab({ game, view, me }: { game: Game; view: ClientView; me: P
   const now = useServerNow(game, !!round && round.status === "open");
   const open = !!round && round.status === "open" && (round.closesAt === null || now < round.closesAt);
 
+  const drawing = !!round && round.status === "open" && !!round.openedAt && now < round.openedAt;
   let featured: ReactNode = null;
   if (round) {
-    if (round.kind === "quiz") featured = <QuizCard key={round.id} game={game} view={view} me={me} round={round} now={now} open={open} />;
+    if (drawing) featured = <DrawCard />;
+    else if (round.kind === "quiz") featured = <QuizCard key={round.id} game={game} view={view} me={me} round={round} now={now} open={open} />;
     else if (open) featured = <BetForm key={round.id} game={game} view={view} me={me} round={round} now={now} />;
     else if (round.status === "resolved") featured = <Resolved view={view} me={me} round={round} />;
     else featured = <Locked view={view} me={me} round={round} />;
@@ -29,12 +32,22 @@ export function BetTab({ game, view, me }: { game: Game; view: ClientView; me: P
   );
 }
 
+function DrawCard() {
+  return (
+    <div className="qcard felt drawcard" role="status">
+      <span className="drawcard-slot" aria-hidden="true">
+        🎰
+      </span>
+      <h2>מגרילים את הסיבוב הבא…</h2>
+      <p className="muted center">תסתכלו על הטלוויזיה. עוד שנייה זה מתחיל.</p>
+    </div>
+  );
+}
+
 function Idle({ hasNight }: { hasNight: boolean }) {
   return (
     <div className="idle felt">
-      <span className="idle-dice" aria-hidden="true">
-        🎲
-      </span>
+      <RodeoItay size={170} />
       <h2>אין אתגר פתוח כרגע</h2>
       <p>{hasNight ? "כשהמנחה יפתח אתגר הוא יקפוץ כאן. בינתיים יש הימורי לילה למטה." : "כשהמנחה יפתח סיבוב, הוא יופיע כאן. בינתיים אפשר לעבוד על המשימות הסודיות."}</p>
     </div>
@@ -166,20 +179,13 @@ function BetForm({ game, view, me, round, now, compact }: { game: Game; view: Cl
   };
 
   const players = view.pub.players;
-  const payout = optionId ? projectedPayout(round, optionId, amount, myBet) : 0;
 
   return wrap(
     <>
       {!compact && round.closesAt && <Countdown round={round} now={now} />}
       {myBet && !editing ? (
         <>
-          <Ticket
-            ticket={myBet.ticket}
-            amount={myBet.amount}
-            label={optionLabel(round, myBet.optionId)}
-            payout={projectedPayout(round, myBet.optionId, myBet.amount, myBet)}
-            note="הסכום ישתנה לפי ההימורים של כולם, עד שההימורים נסגרים"
-          />
+          <Ticket ticket={myBet.ticket} amount={myBet.amount} label={optionLabel(round, myBet.optionId)} note="🤫 ההימורים של כולם סודיים. כשהזמן נגמר, הכל נחשף בטלוויזיה" />
           <div className="row-actions">
             <button type="button" className="btn btn-ghost" onClick={() => setEditing(true)} disabled={busy}>
               שינוי ההימור
@@ -193,9 +199,7 @@ function BetForm({ game, view, me, round, now, compact }: { game: Game; view: Cl
         <>
           <div className={cls("options", round.options.length > 3 && "many")} role="radiogroup" aria-label="על מה מהמרים?">
             {round.options.map((o) => {
-              const st = round.stats.find((s) => s.optionId === o.id);
               const p = o.playerId ? players.find((x) => x.id === o.playerId) : undefined;
-              const m = multiplier(round, o.id);
               return (
                 <button
                   key={o.id}
@@ -210,8 +214,6 @@ function BetForm({ game, view, me, round, now, compact }: { game: Game; view: Cl
                 >
                   {p && <Avatar p={p} size={40} />}
                   <span className="opt-label">{o.label}</span>
-                  <span className="opt-odds">{m === null ? "אף אחד עוד לא" : fmtX(m)}</span>
-                  {!!st?.count && <span className="opt-count">{st.count} הימרו</span>}
                 </button>
               );
             })}
@@ -262,13 +264,9 @@ function BetForm({ game, view, me, round, now, compact }: { game: Game; view: Cl
             </p>
           </div>
 
-          {optionId && (
-            <div className="payout-line">
-              <span>אם תצדקו:</span>
-              <Money n={payout} size={18} />
-              <span className="payout-x">({fmtX(amount ? payout / amount : null)})</span>
-            </div>
-          )}
+          <p className="payout-line">
+            🤫 אף אחד לא רואה על מה הימרתם עד שהזמן נגמר. מי שצודק מתחלק בכל הקופה, לפי הסכום שהימר.
+          </p>
           <button type="button" className="btn btn-gold btn-xl" disabled={!optionId || busy} onClick={submit}>
             {busy ? "שולח…" : optionId ? `להמר ${fmt(amount)} על ״${optionLabel(round, optionId)}״` : "בחרו על מה להמר"}
           </button>
@@ -448,7 +446,12 @@ function NightSection({ game, view, me, night, now }: { game: Game; view: Client
     <section className="night">
       <header className="night-head">
         <h2>🌙 הימורי לילה</h2>
-        <p>פתוחים כל הלילה. המנחה מכריע כשזה קורה, והקופה מתחלקת בין מי שצדק.</p>
+        <p>
+          פתוחים כל הלילה, אפשר להמר על כמה שרוצים. לוחצים על הימור כדי לפתוח אותו. המנחה מכריע כשזה קורה, והקופה מתחלקת בין מי שצדק.
+        </p>
+        <p className="night-count">
+          הימרת על {night.filter((r) => view.me!.bets[r.id]).length} מתוך {night.length}
+        </p>
       </header>
       {list.map((r) => (
         <NightCard key={r.id} game={game} view={view} me={me} r={r} now={now} />
@@ -483,6 +486,7 @@ function NightCard({ game, view, me, r, now }: { game: Game; view: ClientView; m
         </span>
         <span className="night-pot">
           <Money n={potOf(r)} size={14} />
+          {canBet && !mine && <span className="night-cta">להמר ›</span>}
         </span>
       </button>
       <AnimatePresence initial={false}>

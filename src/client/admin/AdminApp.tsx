@@ -9,7 +9,7 @@ import { Avatar, ConnBanner, Marquee, Money, MuteButton, Sheet, ask, toast } fro
 import { MissionsTab } from "./Missions";
 import { PlayersTab } from "./Players";
 import { RoundsTab } from "./Rounds";
-import { RodeoItay } from "../rodeo";
+import { RodeoPhoto } from "../rodeo";
 
 // /admin#key=123456 logs the host in once and keeps the code on this device
 {
@@ -51,7 +51,7 @@ export function AdminApp() {
     return (
       <div className="splash">
         <Marquee size="m" />
-        <RodeoItay size={220} />
+        <RodeoPhoto size={240} />
       </div>
     );
   if (!view.admin) return <AdminLogin game={game} />;
@@ -170,13 +170,21 @@ function Inbox({ view, run }: { view: ClientView; run: Run }) {
                 <div className="inbox-who">
                   {p && <Avatar p={p} size={36} />}
                   <span>
-                    🆘 <b>{p?.name}</b> מבקש חילוץ. יתרה: <Money n={p?.balance ?? 0} size={14} />
+                    {b.dare ? "💸" : "🆘"} <b>{p?.name}</b> {b.dare ? "פשט רגל" : "מבקש חילוץ"}. יתרה: <Money n={p?.balance ?? 0} size={14} />
                   </span>
                 </div>
-                <p className="muted">באישור הוא מקבל {fmt(bailoutAmount)}, והטלוויזיה מגרילה לו עונש קטן.</p>
+                <p className="muted">
+                  {b.dare ? (
+                    <>
+                      המשימה שלו: <b>{b.dare}</b>. אחרי שביצע, מאשרים והוא מקבל {fmt(bailoutAmount)}.
+                    </>
+                  ) : (
+                    <>באישור הוא מקבל {fmt(bailoutAmount)}, והטלוויזיה מגרילה לו עונש קטן.</>
+                  )}
+                </p>
                 <div className="row-actions">
                   <button type="button" className="btn btn-gold" onClick={() => run("judgeBailout", { bailoutId: b.id, approve: true }, "החילוץ אושר")}>
-                    לאשר חילוץ
+                    {b.dare ? "ביצע. לאשר חילוץ" : "לאשר חילוץ"}
                   </button>
                   <button type="button" className="btn btn-ghost" onClick={() => run("judgeBailout", { bailoutId: b.id, approve: false }, "הבקשה נדחתה")}>
                     לדחות

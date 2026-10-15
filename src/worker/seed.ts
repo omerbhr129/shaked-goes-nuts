@@ -1,4 +1,4 @@
-import type { Audience, GameState, ID, Mission, PlayerRec, RoundKind, RoundOption, RoundRec } from "../shared/types";
+import type { Audience, GameState, ID, Mission, PlayerRec, RoundKind, RoundOption, RoundRec, Settings } from "../shared/types";
 
 const PLAYERS: [id: string, name: string, ticker: string, groom?: boolean][] = [
   ["itay", "איתי", "SHKD", true],
@@ -29,7 +29,7 @@ type QuizSeed = [emoji: string, title: string, note: string, options: RoundOptio
 const CHALLENGES: RoundSeed[] = [
   ["🏀", "איתי יקלע 3 כדורים לכוסות תוך 30 שניות?", "בירפונג של החתן. שלוש קליעות לפני שנגמר הזמן = כן.", yesNo(), ["itay"]],
   ["🥜", "כמה שקדים איתי יתפוס בפה מתוך 5 זריקות?", "זורקים מ־3 מטרים. מה שנופל לרצפה לא נחשב. כן, זה השם של המשחק.", labels("0–1", "2–3", "4–5"), ["itay"]],
-  ["💪", "מי ינצח בהורדת ידיים?", "החתן נגד בירמן. הטוב משלושה, יד ימין.", vs("itay", "birman"), ["itay", "birman"]],
+  ["💪", "מי ינצח בהורדת ידיים?", "החתן נגד איילון. הטוב משלושה, יד ימין.", vs("itay", "ayalon"), ["itay", "ayalon"]],
   ["🙈", "איתי יזהה לפחות 3 מ־5 חברים רק לפי מגע בפנים?", "עיניים מכוסות, 10 שניות לכל פרצוף, אסור לדבר.", yesNo(), ["itay"]],
   ["😂", "יהלי יצליח להצחיק את איתי תוך 30 שניות?", "איתי חייב להישאר רציני. חיוך אחד = כן.", yesNo(), ["yali", "itay"]],
   ["🏝️", "את מי איתי ייקח איתו לחודש על אי בודד?", "איתי בוחר בלייב. אסור לשחד אותו בקול רם.", vs(...FRIENDS), ["itay"]],
@@ -44,6 +44,16 @@ const CHALLENGES: RoundSeed[] = [
   ["🫡", "מי יעשה יותר שכיבות סמיכה בדקה?", "בירמן נגד שמאי. כל הווילה סופרת בקול.", vs("birman", "shmay"), ["birman", "shmay"]],
   ["🎭", "איתי יחקה 3 חברים, והחבר׳ה ינחשו את כולם?", "עשר שניות לכל חיקוי. ניחוש אחד לא נכון = לא.", yesNo(), ["itay"]],
   ["🎤", "איתי ישיר את כל הפזמון בקריוקי בלי להציץ במילים?", "את השיר בוחרים החברים. טעות אחת = לא.", yesNo(), ["itay"]],
+  // the villa's table games: one on one, short games to 4
+  ["🏒", "הוקי אוויר: איתי נגד בירמן. מי ינצח?", "משחק קצר עד 4 גולים. גול עצמי = לגימה.", vs("itay", "birman"), ["itay", "birman"]],
+  ["🏒", "הוקי אוויר: סיסו נגד שמאי. מי ינצח?", "משחק קצר עד 4 גולים.", vs("sisu", "shmay"), ["sisu", "shmay"]],
+  ["🏓", "פינג פונג: דרורי נגד יהלי. מי ינצח?", "משחק קצר עד 4 נקודות. מגישים לסירוגין.", vs("drori", "yali"), ["drori", "yali"]],
+  ["🏓", "פינג פונג: איילון נגד בן הרוש. מי ינצח?", "משחק קצר עד 4 נקודות.", vs("ayalon", "benharoosh"), ["ayalon", "benharoosh"]],
+  ["🏓", "פינג פונג: איתי נגד שמאי. מי ינצח?", "משחק קצר עד 4 נקודות. החתן מגיש ראשון.", vs("itay", "shmay"), ["itay", "shmay"]],
+  ["⚽", "כדורגל שולחן: בירמן נגד סיסו. מי ינצח?", "משחק קצר עד 4 גולים. אסור לסובב מוטות 360.", vs("birman", "sisu"), ["birman", "sisu"]],
+  ["⚽", "כדורגל שולחן: יהלי נגד איילון. מי ינצח?", "משחק קצר עד 4 גולים.", vs("yali", "ayalon"), ["yali", "ayalon"]],
+  ["⚽", "כדורגל שולחן זוגות: מי ינצח?", "איתי ודרורי נגד בן הרוש ובירמן. משחק קצר עד 4 גולים.", labels("איתי ודרורי", "בן הרוש ובירמן"), ["itay", "drori", "benharoosh", "birman"]],
+  ["🍔", "איתי יהפוך 6 המבורגרים על האש בלי שאף אחד ייפול?", "במנגל של הווילה, עם מרית אחת. נפל אחד = לא.", yesNo(), ["itay"]],
 ];
 
 // Quiz questions: everyone answers on the phone. Right = almonds, wrong = a shot on the big screen.
@@ -89,6 +99,7 @@ const MISSIONS: MissionSeed[] = [
   ["תגרום ל{G} להאכיל אותך ביס מהצלחת שלו", 100, "friends"],
   ["תגרום ל{G} לחקות איך שחף מעירה לו על משהו", 150, "friends"],
   ["תגרום ל{G} להגיד עם כוס ביד ״זאת הפעם האחרונה שאני רווק״", 100, "friends"],
+  ["תגרום ל{G} להפסיד לך בכדורגל שולחן ולהגיד ״אתה המלך״", 200, "friends"],
   // about another player
   ["תגרום ל{X} לקרוא לך ״אבא״", 150, "all"],
   ["תגרום ל{X} להצטלם איתך בפוזת טיטאניק", 150, "all"],
@@ -116,12 +127,19 @@ const MISSIONS: MissionSeed[] = [
   ["תגרום ל{X} לשיר לך ״יום הולדת שמח״, למרות שאין לך יום הולדת", 150, "all"],
   ["תתנהג מוזר עד ש{X} ישאל אותך ״אחי, אתה בסדר?״", 100, "all"],
   ["תגרום ל{X} להיכנס איתך לבריכה עם הבגדים", 200, "all"],
+  ["תנצח את {X} בפינג פונג ותעשה לו ריקוד ניצחון מוגזם בפרצוף", 150, "all"],
+  ["תגרום ל{X} לשחק איתך הוקי אוויר עם יד אחת מאחורי הגב", 150, "all"],
+  ["תגרום ל{X} להתערב איתך על שוט ולהפסיד לך בפינג פונג", 200, "all"],
+  ["תגרום ל{X} לעמוד מתחת למפל בבריכה עם הבגדים", 200, "all"],
+  ["תגרום ל{X} לצעוק ״אני מלך העולם״ מהמרפסת עם הנוף", 150, "all"],
+  ["תגרום ל{X} להביא לך משהו מהמנגל ולהגיש לך אותו כמו מלצר", 100, "all"],
   // about two other players
   ["תגרום ל{X} ול{Y} לרקוד סלואו ביחד", 200, "all"],
   ["תגרום ל{X} ול{Y} להתווכח מי מהם יותר יפה", 150, "all"],
   ["תגרום ל{X} להגיד ל{Y} ״אתה הכי יפה פה״", 150, "all"],
   ["תגרום ל{X} להרים את {Y} על הידיים", 200, "all"],
   ["תגרום ל{X} ול{Y} להחליף חולצות", 200, "all"],
+  ["תגרום ל{X} ול{Y} לשחק כדורגל שולחן כשהם מדברים רק באנגלית", 150, "all"],
   // only for the groom
   ["תגרום ל{X} לנאום לכבודך עם כוס ביד", 150, "groom"],
   ["תגרום ל{X} לפנות לך את המקום שלו על הספה, בלי לבקש ישירות", 100, "groom"],
@@ -129,7 +147,23 @@ const MISSIONS: MissionSeed[] = [
   ["תגרום ל{X} לשיר לך שיר אהבה (לפחות שורה)", 200, "groom"],
   ["תגרום ל{X} להרים אותך על הידיים", 200, "groom"],
   ["תגרום ל{X} לנגב לך את הפה אחרי שאכלת", 150, "groom"],
+  ["תגרום ל{X} לשחק נגדך הוקי אוויר בעיניים עצומות", 150, "groom"],
+  ["תגרום ל{X} לעמוד לידך במנגל ולהגיד ״כן, שף״", 100, "groom"],
 ];
+
+export const DEFAULT_SETTINGS: Settings = {
+  currency: "שקדים",
+  startBalance: 1000,
+  allowJoinNew: true,
+  bankBonus: 200,
+  catchReward: 100,
+  falsePenalty: 50,
+  bailoutAmount: 300,
+  prize1: "מלך השקדים: פטור מכל הניקיונות מחר, וכולם מגישים לו קפה למיטה",
+  prize2: "בוחר את המוזיקה כל הדרך הביתה",
+  prize3: "המקלחת הראשונה בבוקר, עם כל המים החמים",
+  prizeLast: "השקד המר: מכין לכולם ארוחת בוקר ומנקה את המנגל",
+};
 
 function round(kind: RoundKind, seed: RoundSeed, i: number): RoundRec {
   const [emoji, title, note, options, noBet] = seed;
@@ -156,6 +190,8 @@ function round(kind: RoundKind, seed: RoundSeed, i: number): RoundRec {
     refunded: false,
     losers: [],
     loserReason: null,
+    lines: {},
+    task: null,
   };
 }
 
@@ -202,7 +238,7 @@ export function seedState(now: number): GameState {
   return {
     v: 1,
     seq: 0,
-    settings: { currency: "שקדים", startBalance: 1000, allowJoinNew: true, bankBonus: 200, catchReward: 100, falsePenalty: 50, bailoutAmount: 300 },
+    settings: { ...DEFAULT_SETTINGS },
     players,
     rounds: [...interleave(), ...NIGHT.map((r, i) => round("night", r, i))],
     bets: [],
@@ -215,5 +251,6 @@ export function seedState(now: number): GameState {
     tv: { mode: "lobby", at: now, step: 0 },
     activeRoundId: null,
     lastResolvedId: null,
+    draw: null,
   };
 }

@@ -1,12 +1,27 @@
 import { AnimatePresence, motion } from "motion/react";
-import { useEffect, useLayoutEffect, useMemo, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { ClientView, PlayerPub, PublicBet, RoundPub } from "../../shared/types";
 import { type AwardStep, awardSteps } from "../awards";
 import { LETTERS, cls, fmt, fmtX, kingAndLast, mmss, multiplier, photoOf, potOf, ranked, signed } from "../lib";
 import { type Game, useServerNow } from "../net";
 import { QR } from "../qr";
-import { sfx } from "../sound";
+import { prefetchLine, sfx, speak } from "../sound";
 import { Avatar, Change, Coin, FunnyFace, Led, Marquee, Money, Podium, Spark, burst } from "../ui";
+import { Spotlight, holdTv, loseKind } from "./Moments";
+
+/** Run a sequence of [phase, ms] steps; each entry fires its callback. Returns a cleanup. */
+function runSteps<P>(steps: [P, number][], enter: (p: P) => void, done: () => void) {
+  const timers: number[] = [];
+  let t = 0;
+  steps.forEach(([ph, ms], i) => {
+    if (i === 0) enter(ph);
+    else timers.push(window.setTimeout(() => enter(ph), t));
+    t += ms;
+  });
+  timers.push(window.setTimeout(done, t));
+  holdTv(t);
+  return () => timers.forEach((x) => window.clearTimeout(x));
+}
 
 const byId = (players: PlayerPub[]) => Object.fromEntries(players.map((p) => [p.id, p])) as Record<string, PlayerPub>;
 
@@ -111,21 +126,57 @@ export function RoundScreen({ view, game }: { view: ClientView; game: Game }) {
   const open = r.status === "open" && (r.closesAt === null || now < r.closesAt);
   const people = useMemo(() => byId(view.pub.players), [view.pub.players]);
 
-  // Suspense: a fresh result gets a drum roll before the reveal.
+  // A fresh result: drum roll → the reveal → the winners as kings → the losers and their task.
   const resolvedKey = r.status === "resolved" ? `${r.id}:${r.resolvedAt}` : null;
-  const [suspense, setSuspense] = useState(false);
-  useEffect(() => {
-    if (!resolvedKey || !r.resolvedAt) return;
-    if (Date.now() + game.offset - r.resolvedAt > 8000) return;
-    setSuspense(true);
-    sfx.drumroll(1.6);
-    const id = window.setTimeout(() => {
-      setSuspense(false);
-      sfx.win();
-      burst("big");
-    }, 1750);
-    return () => window.clearTimeout(id);
+  const [phase, setPhase] = useState<"suspense" | "reveal" | "win" | "lose" | null>(null);
+  useLayoutEffect(() => {
+    if (!resolvedKey || !r.resolvedAt || Date.now() + game.offset - r.resolvedAt > 8000) {
+      setPhase(null);
+      return;
+    }
+    const L = r.lines ?? {};
+    for (const k of ["win", "lose"]) if (L[k]) prefetchLine(`round:${r.id}:${k}`);
+    const steps: [typeof phase, number][] = [
+      ["suspense", 1750],
+      ["reveal", 3200],
+    ];
+    if (L.win) steps.push(["win", 6500]);
+    if (L.lose) steps.push(["lose", 8500]);
+    return runSteps(
+      steps,
+      (ph) => {
+        setPhase(ph);
+        if (ph === "suspense") sfx.drumroll(1.6);
+        if (ph === "reveal") {
+          sfx.win();
+          burst("big");
+        }
+        if (ph === "win") {
+          sfx.fanfare();
+          speak(`round:${r.id}:win`);
+        }
+        if (ph === "lose") {
+          sfx.sad();
+          speak(`round:${r.id}:lose`);
+        }
+      },
+      () => setPhase(null),
+    );
   }, [resolvedKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  const suspense = phase === "suspense";
+
+  // betting just closed: everybody's bets come out at once
+  const prevStatus = useRef(r.status);
+  const [unveil, setUnveil] = useState(false);
+  useEffect(() => {
+    const was = prevStatus.current;
+    prevStatus.current = r.status;
+    if (was !== "open" || r.status !== "closed") return;
+    setUnveil(true);
+    sfx.drumroll(1.1);
+    const id = window.setTimeout(() => setUnveil(false), 2300);
+    return () => window.clearTimeout(id);
+  }, [r.status]);
 
   // last seconds tick out loud
   const secsLeft = open && r.closesAt ? Math.ceil((r.closesAt - now) / 1000) : null;
@@ -136,6 +187,9 @@ export function RoundScreen({ view, game }: { view: ClientView; game: Game }) {
   const showResult = r.status === "resolved" && !suspense;
   const many = r.options.length > 3;
   const deltaOf = (pid: string) => r.results?.find((x) => x.playerId === pid)?.delta ?? 0;
+  const secret = r.status === "open";
+  const winners = (r.results ?? []).filter((x) => x.delta > 0).map((x) => people[x.playerId]).filter((p): p is PlayerPub => !!p);
+  const losers = r.losers.map((id) => people[id]).filter((p): p is PlayerPub => !!p);
 
   return (
     <div className={cls("tvround", many && "many")}>
@@ -179,15 +233,21 @@ export function RoundScreen({ view, game }: { view: ClientView; game: Game }) {
               ) : (
                 <span className="tvopt-big">{o.label}</span>
               )}
-              <div className="tvopt-stats">
-                <Odds value={multiplier(r, o.id)} />
-                <span className="tvopt-count">
-                  {st.count === 1 ? "הימור אחד" : `${st.count} הימורים`} · <Money n={st.total} size={many ? 18 : 24} />
-                </span>
-              </div>
-              <div className="tvopt-bar">
-                <motion.div initial={false} animate={{ scaleX: r.staked ? st.total / r.staked : 0 }} transition={{ type: "spring", stiffness: 90, damping: 18 }} />
-              </div>
+              {secret ? (
+                <div className="tvopt-stats secret">🤫 סודי עד שההימורים נסגרים</div>
+              ) : (
+                <>
+                  <div className="tvopt-stats">
+                    <Odds value={multiplier(r, o.id)} />
+                    <span className="tvopt-count">
+                      {st.count === 1 ? "הימור אחד" : `${st.count} הימורים`} · <Money n={st.total} size={many ? 18 : 24} />
+                    </span>
+                  </div>
+                  <div className="tvopt-bar">
+                    <motion.div initial={{ scaleX: 0 }} animate={{ scaleX: r.staked ? st.total / r.staked : 0 }} transition={{ type: "spring", stiffness: 70, damping: 16, delay: 0.3 }} />
+                  </div>
+                </>
+              )}
               {r.bets && (
                 <div className="tvopt-backers">
                   {backers.map((b) => (
@@ -207,6 +267,20 @@ export function RoundScreen({ view, game }: { view: ClientView; game: Game }) {
         {r.status === "resolved" && suspense && <div className="tv-banner pulse">והתוצאה היא…</div>}
         {showResult && (r.refunded ? <div className="tv-banner">אף אחד לא צדק! כל ההימורים חוזרים לבעלים</div> : <Results r={r} people={people} />)}
       </footer>
+
+      <AnimatePresence>
+        {unveil && (
+          <motion.div key="unveil" className="unveil" initial={{ scale: 0.4, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 1.4, opacity: 0 }} transition={{ type: "spring", stiffness: 240, damping: 15 }}>
+            🔓 ההימורים נחשפים!
+          </motion.div>
+        )}
+        {phase === "win" && winners.length > 0 && (
+          <Spotlight key="win" kind="win" title={winners.length === 1 ? "👑 המלך!" : "👑 צדקו!"} people={winners} line={r.lines.win} amount={winners.length === 1 ? deltaOf(winners[0].id) : undefined} />
+        )}
+        {phase === "lose" && losers.length > 0 && (
+          <Spotlight key="lose" kind={loseKind(r.task)} title={r.refunded ? "🍻 אף אחד לא צדק!" : "😬 הפסידו"} people={losers} line={r.lines.lose} task={r.task} />
+        )}
+      </AnimatePresence>
     </div>
   );
 }
@@ -312,31 +386,49 @@ export function QuizScreen({ view, game }: { view: ClientView; game: Game }) {
   const open = r.status === "open" && (r.closesAt === null || now < r.closesAt);
   const people = useMemo(() => byId(view.pub.players), [view.pub.players]);
   const resolvedKey = r.status === "resolved" ? `${r.id}:${r.resolvedAt}` : null;
-  const [phase, setPhase] = useState<"suspense" | "answer" | "shot" | null>(null);
+  const [phase, setPhase] = useState<"suspense" | "answer" | "fast" | "shot" | "slow" | null>(null);
 
-  // reveal: drum roll → the right answer lights up → the shot screen for whoever got it wrong
+  // reveal: drum roll → the right answer → the fastest, full screen → the slow one, or everyone who drinks
   useLayoutEffect(() => {
     if (!resolvedKey || !r.resolvedAt) return;
-    const fresh = Date.now() + game.offset - r.resolvedAt < 8000;
-    if (!fresh) {
+    if (Date.now() + game.offset - r.resolvedAt > 8000) {
       setPhase("answer");
       return;
     }
-    setPhase("suspense");
-    sfx.drumroll(1.4);
-    const t1 = window.setTimeout(() => {
-      setPhase("answer");
-      sfx.win();
-      burst("win");
-    }, 1500);
-    const t2 = r.losers.length
-      ? window.setTimeout(() => {
-          setPhase("shot");
+    const L = r.lines ?? {};
+    for (const k of ["fast", "shot", "slow"]) if (L[k]) prefetchLine(`round:${r.id}:${k}`);
+    const steps: [typeof phase, number][] = [
+      ["suspense", 1500],
+      ["answer", 2700],
+    ];
+    if (L.fast) steps.push(["fast", 6500]);
+    if (L.slow) steps.push(["slow", 7000]);
+    else if (r.losers.length) steps.push(["shot", 9500]);
+    return runSteps(
+      steps,
+      (ph) => {
+        setPhase(ph);
+        if (ph === "suspense") sfx.drumroll(1.4);
+        if (ph === "answer") {
+          sfx.win();
+          burst("win");
+        }
+        if (ph === "fast") {
+          sfx.whoosh();
+          sfx.win();
+          speak(`round:${r.id}:fast`);
+        }
+        if (ph === "slow") {
+          sfx.sad();
+          speak(`round:${r.id}:slow`);
+        }
+        if (ph === "shot") {
           sfx.gotcha();
-        }, 4300)
-      : 0;
-    const t3 = r.losers.length ? window.setTimeout(() => setPhase("answer"), 17000) : 0;
-    return () => [t1, t2, t3].forEach((t) => t && window.clearTimeout(t));
+          speak(`round:${r.id}:shot`);
+        }
+      },
+      () => setPhase("answer"),
+    );
   }, [resolvedKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const secsLeft = open && r.closesAt ? Math.ceil((r.closesAt - now) / 1000) : null;
@@ -348,6 +440,7 @@ export function QuizScreen({ view, game }: { view: ClientView; game: Game }) {
   const answered = new Set(r.bettors);
   const eligible = view.pub.players.filter((p) => p.claimed && !r.noBet.includes(p.id));
   const rightOnes = (r.results ?? []).filter((x) => x.delta > 0).sort((a, b) => b.delta - a.delta);
+  const fastest = (r.results ?? []).find((x) => x.delta > 0);
 
   return (
     <div className={cls("tvquiz", r.options.length > 4 && "many")}>
@@ -425,7 +518,7 @@ export function QuizScreen({ view, game }: { view: ClientView; game: Game }) {
         )}
         {!open && r.status !== "resolved" && <div className="tv-banner">⏳ הזמן נגמר! מה התשובה?</div>}
         {phase === "suspense" && <div className="tv-banner pulse">והתשובה הנכונה היא…</div>}
-        {reveal && phase !== "shot" && (
+        {reveal && (
           <div className="results">
             <div className="results-col up">
               <span className="results-label">צדקו</span>
@@ -463,48 +556,18 @@ export function QuizScreen({ view, game }: { view: ClientView; game: Game }) {
         )}
       </footer>
 
-      <AnimatePresence>{phase === "shot" && <ShotOverlay r={r} people={people} />}</AnimatePresence>
+      <AnimatePresence>
+        {phase === "fast" && fastest && people[fastest.playerId] && (
+          <Spotlight key="fast" kind="fast" title="⚡ הכי מהיר!" people={[people[fastest.playerId]]} line={r.lines.fast} sub={r.lines.kings} amount={fastest.delta} />
+        )}
+        {phase === "slow" && r.losers[0] && people[r.losers[0]] && (
+          <Spotlight key="slow" kind="slow" title="🐢 הכי איטי!" people={[people[r.losers[0]]]} line={r.lines.slow} task="לשתות שוט 🥃" />
+        )}
+        {phase === "shot" && (
+          <Spotlight key="shot" kind="shot" title="🥃 שוט!" people={r.losers.map((id) => people[id]).filter((p): p is PlayerPub => !!p)} line={r.lines.shot ?? "טעיתם. לשתות!"} />
+        )}
+      </AnimatePresence>
     </div>
-  );
-}
-
-const andList = (names: string[]) => (names.length > 1 ? `${names.slice(0, -1).join(", ")} ו${names[names.length - 1]}` : names[0] ?? "");
-
-/** "X answered wrong, Y didn't answer at all": everybody hears exactly why they drink. */
-function shotLine(r: RoundPub, who: PlayerPub[]) {
-  const answered = new Set((r.bets ?? []).map((b) => b.playerId));
-  const wrong = who.filter((p) => answered.has(p.id)).map((p) => p.name);
-  const silent = who.filter((p) => !answered.has(p.id)).map((p) => p.name);
-  if (r.loserReason === "slow") return `${andList(wrong)}, צדקת אבל ענית אחרון. המשימה שלך: לשתות שוט!`;
-  if (!silent.length) return wrong.length === 1 ? `${wrong[0]}, ענית לא נכון. המשימה שלך: לשתות שוט!` : `${andList(wrong)}, עניתם לא נכון. המשימה שלכם: לשתות שוט!`;
-  if (!wrong.length) return silent.length === 1 ? `${silent[0]}, לא ענית בזמן. המשימה שלך: לשתות שוט!` : `${andList(silent)}, לא עניתם בזמן. המשימה שלכם: לשתות שוט!`;
-  return `${andList(wrong)} ${wrong.length > 1 ? "ענו" : "ענה"} לא נכון, ו${andList(silent)} ${silent.length > 1 ? "לא ענו" : "לא ענה"} בכלל. המשימה של כולם: לשתות שוט!`;
-}
-
-/** The big moment: faces of whoever got it wrong, and their task. */
-function ShotOverlay({ r, people }: { r: RoundPub; people: Record<string, PlayerPub> }) {
-  const who = r.losers.map((id) => people[id]).filter((p): p is PlayerPub => !!p);
-  const size = who.length <= 2 ? 330 : who.length <= 4 ? 250 : 190;
-  return (
-    <motion.div className="shot" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-      <motion.div className="shot-title" initial={{ scale: 0.4, rotate: -10 }} animate={{ scale: 1, rotate: 0 }} transition={{ type: "spring", stiffness: 260, damping: 12 }}>
-        🥃 שוט!
-      </motion.div>
-      <div className="shot-faces">
-        {who.map((p, i) => (
-          <motion.div key={p.id} className="shot-person" initial={{ y: 80, opacity: 0 }} animate={{ y: 0, opacity: 1 }} transition={{ delay: 0.4 + i * 0.18, type: "spring", stiffness: 200, damping: 15 }}>
-            <FunnyFace p={p} size={size} />
-            <span className="shot-glass" aria-hidden="true">
-              🥃
-            </span>
-            <b>{p.name}</b>
-          </motion.div>
-        ))}
-      </div>
-      <motion.p className="shot-text" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 1 }}>
-        {shotLine(r, who)}
-      </motion.p>
-    </motion.div>
   );
 }
 
@@ -527,7 +590,7 @@ export function BoardScreen({ view }: { view: ClientView }) {
       </header>
       <div className="tvboard-body">
         <section className="tvboard-podium">
-          <Podium list={list.slice(0, 3)} size="l" value={(p) => <Led value={p.balance} />} />
+          <Podium list={list.slice(0, 3)} size="l" king value={(p) => <Led value={p.balance} />} />
           <div className="tvboard-roles">
             {kingP && (
               <p>
@@ -757,6 +820,7 @@ function AwardView({ step, people, view }: { step: AwardStep; people: Record<str
         </span>
       )}
       <p className="award-desc">מקום אחרון. עכשיו מסובבים את גלגל העונשים.</p>
+      <p className="award-morning">ובבוקר: {view.pub.settings.prizeLast}</p>
     </div>
   );
 }
@@ -777,8 +841,35 @@ export function WinnerScreen({ view, embedded }: { view: ClientView; embedded?: 
         מלך השקדים של הלילה
       </motion.h1>
       <motion.div className="tvwin-podium" initial={{ opacity: 0, y: 80 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.8, type: "spring", stiffness: 110, damping: 15 }}>
-        <Podium list={list.slice(0, 3)} size="l" value={(p) => <Led value={p.balance} />} />
+        <Podium list={list.slice(0, 3)} size="l" king value={(p) => <Led value={p.balance} />} />
       </motion.div>
+      <Prizes view={view} />
     </div>
+  );
+}
+
+/** What the morning holds for the top three and the last place. */
+export function Prizes({ view }: { view: ClientView }) {
+  const list = ranked(view.pub.players);
+  const { prize1, prize2, prize3, prizeLast } = view.pub.settings;
+  const rows: [string, PlayerPub | undefined, string][] = [
+    ["🥇", list[0], prize1],
+    ["🥈", list[1], prize2],
+    ["🥉", list[2], prize3],
+  ];
+  if (list.length > 3) rows.push(["🍋", list[list.length - 1], prizeLast]);
+  return (
+    <motion.div className="prizes" initial={{ opacity: 0, y: 40 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 1.6 }}>
+      {rows.map(([medal, p, text]) =>
+        p ? (
+          <div key={medal} className={cls("prize", medal === "🍋" && "last")}>
+            <b>
+              {medal} {p.name}
+            </b>
+            <span>{text}</span>
+          </div>
+        ) : null,
+      )}
+    </motion.div>
   );
 }

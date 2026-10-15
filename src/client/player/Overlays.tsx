@@ -51,7 +51,8 @@ export function ResultOverlay({ view, meId }: { view: ClientView; meId: string }
     lsSet(key, "1");
     const label = due.options.find((o) => o.id === due.winnerId)?.label ?? "";
     if (due.refunded) {
-      toast(`${due.emoji} אף אחד לא צדק ב״${due.title}״. ההימור חזר אליך.`, "info", 5000);
+      setFlash({ kind: "drink", title: "🍻 אף אחד לא צדק!", sub: `ההימור חזר אליך. אבל ${due.task ?? "כולם שותים"}` });
+      sfx.lose();
       return;
     }
     const delta = due.results?.find((x) => x.playerId === meId)?.delta ?? 0;
@@ -64,7 +65,8 @@ export function ResultOverlay({ view, meId }: { view: ClientView; meId: string }
           sfx.gotcha();
           navigator.vibrate?.([120, 60, 120, 60, 300]);
         } else if (won) {
-          setFlash({ kind: "win", amount: delta, title: "צדקת! 🧠", sub: `התשובה: ״${label}״` });
+          const fastest = delta > due.reward;
+          setFlash({ kind: "win", amount: delta, title: fastest ? "⚡ הכי מהיר!" : "צדקת! 🧠", sub: fastest ? `צדקת והיית הראשון. תסתכל על הטלוויזיה 😎` : `התשובה: ״${label}״` });
           sfx.win();
           burst("coins");
         }
@@ -75,7 +77,7 @@ export function ResultOverlay({ view, meId }: { view: ClientView; meId: string }
       kind: won ? "win" : "lose",
       amount: delta,
       title: won ? "צדקת! 🤑" : "פספוס 😬",
-      sub: `${due.kind === "night" ? "🌙 " : ""}התוצאה: ״${label}״`,
+      sub: `${due.kind === "night" ? "🌙 " : ""}התוצאה: ״${label}״${!won && due.task ? `. המשימה שלך: ${due.task}` : ""}`,
     });
     navigator.vibrate?.(won ? [40, 60, 40, 60, 80] : [220]);
     if (won) {
@@ -122,6 +124,12 @@ export function FeedWatcher({ view, meId }: { view: ClientView; meId: string }) 
       seen.current.add(e.id);
       if (e.kind === "mission") {
         if (!mine.has(e.ref ?? "")) toast(e.text, "info", 4500);
+      } else if (e.kind === "broke") {
+        if (e.players.includes(meId)) {
+          setFlash({ kind: "drink", title: "💸 פשטת רגל!", sub: `המשימה שלך: ${e.data?.task ?? "תשאל את המנחה"}. אחרי שתבצע, המנחה יאשר לך חילוץ.` });
+          sfx.sad();
+          navigator.vibrate?.([300, 100, 300]);
+        } else toast(e.text, "info", 6000);
       } else if (e.kind === "shot") {
         // whoever drinks gets the big moment from the quiz result; everyone else hears about it
         if (!e.players.includes(meId)) toast(e.text, "info", 5000);

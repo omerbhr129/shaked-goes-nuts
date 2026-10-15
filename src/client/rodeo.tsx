@@ -35,6 +35,43 @@ export function useIntro(ms = 2800) {
   return on;
 }
 
+const RODEO = ["/photos/ai/rodeo-1.jpg", "/photos/ai/rodeo-2.jpg"];
+const LOADING = [
+  "מחממים את השקדים…",
+  "סופרים את הצ׳יפים…",
+  "מוודאים שאיתי עדיין רווק…",
+  "מנקים את שולחן הפינג פונג…",
+  "מדליקים את המנגל…",
+  "מקררים את השוטים…",
+  "מחממים את הבריכה…",
+  "פותחים את הבורסה…",
+];
+
+/** The loading screen: the AI picture of Itay riding a golden almond, bucking, with silly status lines. */
+export function RodeoPhoto({ size = 300 }: { size?: number }) {
+  const [src] = useState(() => RODEO[Math.floor(Math.random() * RODEO.length)]);
+  const [line, setLine] = useState(() => Math.floor(Math.random() * LOADING.length));
+  const [failed, setFailed] = useState(false);
+  useEffect(() => {
+    const id = window.setInterval(() => setLine((x) => (x + 1) % LOADING.length), 1100);
+    return () => window.clearInterval(id);
+  }, []);
+  return (
+    <div className="rodeo-photo" style={{ width: size }}>
+      {failed ? (
+        <RodeoItay size={size} />
+      ) : (
+        <div className="rodeo-frame">
+          <img src={src} alt="איתי בטוקסידו רוכב על שקד זהב ענק בקזינו" onError={() => setFailed(true)} />
+        </div>
+      )}
+      <p className="rodeo-line" key={line}>
+        {LOADING[line]}
+      </p>
+    </div>
+  );
+}
+
 /** The loading-screen star: the groom as a bobblehead, riding a bucking mechanical almond. */
 export function RodeoItay({ size = 260, className }: { size?: number; className?: string }) {
   return (

@@ -14,6 +14,21 @@ export function BoardTab({ view, meId }: { view: ClientView; meId: string }) {
         <Podium list={list.slice(0, 3)} size="m" />
       </div>
       <p className="board-rules">👑 המלך בוחר מי מתמודד באתגר הבא. 🍋 השקד המר שותה כשהגלגל מחליט.</p>
+      <div className="morning felt">
+        <h3>🌅 מה מחכה בבוקר</h3>
+        <p>
+          <b>🥇</b> {view.pub.settings.prize1}
+        </p>
+        <p>
+          <b>🥈</b> {view.pub.settings.prize2}
+        </p>
+        <p>
+          <b>🥉</b> {view.pub.settings.prize3}
+        </p>
+        <p className="morning-last">
+          <b>🍋</b> {view.pub.settings.prizeLast}
+        </p>
+      </div>
       <ol className="board-list">
         {list.map((p, i) => (
           <motion.li layout transition={{ type: "spring", stiffness: 260, damping: 30 }} key={p.id} className={cls("board-row", p.id === meId && "me", i === 0 && "lead")}>

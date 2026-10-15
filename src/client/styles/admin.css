@@ -952,3 +952,30 @@
 .section-head .btn {
   white-space: nowrap;
 }
+
+.draw-bar {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+}
+
+.draw-bar p {
+  margin: 0;
+  color: var(--almond-dim);
+}
+
+.draw-bar .btn {
+  flex: 1;
+  min-height: 56px;
+  font-size: 1.05rem;
+}
+
+.draw-bar small {
+  opacity: 0.7;
+}
+
+.prize-fields {
+  display: grid;
+  gap: 8px;
+  margin: 12px 0;
+}

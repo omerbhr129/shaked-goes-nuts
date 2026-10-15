@@ -1,5 +1,5 @@
-import type { Audience, FeedKind, GameState, ID, Mission, PlayerRec, RoundKind, RoundOption, RoundRec, TargetSlot, TvMode, WheelKind } from "../shared/types";
-import { seedState } from "./seed";
+import type { Audience, FeedEvent, FeedKind, GameState, ID, Mission, PlayerRec, RoundKind, RoundOption, RoundRec, TargetSlot, TvMode, WheelKind } from "../shared/types";
+import { DEFAULT_SETTINGS, seedState } from "./seed";
 
 /** A rule violation. Its message is shown to the person as-is. */
 export class GameError extends Error {}
@@ -37,8 +37,9 @@ export function available(s: GameState, pid: ID, exceptRoundId?: ID): number {
   return balanceOf(s, pid) - held;
 }
 
+/** Open for bets: a drawn round only starts once the TV's reel has stopped spinning. */
 export function bettingOpen(r: RoundRec, now: number): boolean {
-  return r.status === "open" && (r.closesAt === null || now < r.closesAt);
+  return r.status === "open" && (r.openedAt === null || now >= r.openedAt) && (r.closesAt === null || now < r.closesAt);
 }
 
 export function standings(s: GameState) {
@@ -49,8 +50,8 @@ export function standings(s: GameState) {
 
 const nameOf = (s: GameState, id: ID) => s.players.find((p) => p.id === id)?.name ?? "מישהו";
 
-function pushFeed(s: GameState, now: number, kind: FeedKind, text: string, players: ID[] = [], ref: ID | null = null) {
-  s.feed.push({ id: newId(), at: now, kind, text, players, ref });
+function pushFeed(s: GameState, now: number, kind: FeedKind, text: string, players: ID[] = [], ref: ID | null = null, data?: FeedEvent["data"]) {
+  s.feed.push({ id: newId(), at: now, kind, text, players, ref, ...(data ? { data } : {}) });
   if (s.feed.length > 40) s.feed = s.feed.slice(-40);
 }
 
@@ -68,11 +69,9 @@ export function normalize(s: GameState): GameState {
   s.wheel ??= null;
   s.activeRoundId ??= null;
   s.lastResolvedId ??= null;
+  s.draw ??= null;
   s.tv = Object.assign({ mode: "lobby", at: Date.now(), step: 0 }, s.tv);
-  s.settings = Object.assign(
-    { currency: "שקדים", startBalance: 1000, allowJoinNew: true, bankBonus: 200, catchReward: 100, falsePenalty: 50, bailoutAmount: 300 },
-    s.settings,
-  );
+  s.settings = Object.assign({ ...DEFAULT_SETTINGS }, s.settings);
   for (const r of s.rounds) {
     r.kind ??= "challenge";
     r.bonus ??= s.settings.bankBonus;
@@ -81,6 +80,8 @@ export function normalize(s: GameState): GameState {
     r.correctId ??= null;
     r.losers ??= [];
     r.loserReason ??= null;
+    r.lines ??= {};
+    r.task ??= null;
   }
   for (const m of s.missions) {
     m.caughtBy ??= null;
@@ -88,6 +89,132 @@ export function normalize(s: GameState): GameState {
     m.targets ??= {};
   }
   return s;
+}
+
+function resetRound(r: RoundRec) {
+  Object.assign(r, { status: "draft", openedAt: null, closesAt: null, winnerId: null, resolvedAt: null, refunded: false, losers: [], loserReason: null, lines: {}, task: null });
+}
+
+/* ---------- the funny bits: unfiltered lines for the TV and the announcer ---------- */
+
+const LINES = {
+  mission: [
+    "{n} הקליבר הזה סגר משימה סודית! מה הוא עשה? מי שמנחש, גונב לו את השקדים",
+    "{n} הזיין עבד על כולכם בעיניים. משימה סודית בוצעה",
+    "{n} עשה משימה מתחת לאף שלכם, חבורת עיוורים",
+    "{n}: אחת. כל השאר: אפס עגול. משימה סודית בוצעה",
+    "{n} מרוויח שקדים בזמן שאתם מגרדים ת׳ראש",
+    "תגידו תודה ל{n}. הוא הרגע עבד עליכם כמו על ילדים בגן",
+    "פרס האוסקר הולך ל{n}! הוא הרגע סגר משימה סודית",
+    "{n} השקרן הכי מוכשר בגליל המערבי. משימה סודית בוצעה",
+  ],
+  caught: ["איזה חובבן", "בפעם הבאה תתאמן מול המראה", "השקדים הלכו לפח", "ככה זה כשמתעסקים עם בלשים"],
+  miss: ["פרנואיד מקצועי", "תרגיע, אחי", "מינוס 50 על הדמיון המפותח"],
+  win1: ["{n} המלך! תשתחוו לו", "{n} הזיין קרע את הבורסה", "{n} קרא את המשחק כמו נוסטרדמוס", "{n} הרוויח, ועכשיו הוא יהיה בלתי נסבל כל הלילה"],
+  winN: ["{n} קרעו את הבורסה! תשתחוו", "{n}: המלכים של הסיבוב", "{n} צדקו, ועכשיו הם יהיו בלתי נסבלים כל הלילה"],
+  groomWin: ["החתן ניצח! שחף, תתכונני לחיים עם אלוף", "{n} החתן הזיין קרע את הבורסה"],
+  lose1: ["{n} הימר כמו גאון והפסיד כמו אידיוט", "{n}, הבורסה צחקה לך בפרצוף", "יא ברוך, {n}. שוב", "{n} שרף שקדים כמו שאיתי שורף סטייקים"],
+  loseN: ["{n} הימרו כמו גאונים והפסידו כמו אידיוטים", "{n}, הבורסה צחקה לכם בפרצוף", "{n}: חבורת חובבנים", "{n} שרפו שקדים כמו שאיתי שורף סטייקים"],
+  groomLose: ["החתן הפסיד! שחף, את רואה עם מי את מתחתנת?", "{n}, עוד לא התחתנת וכבר מפסיד"],
+  none: ["אף אחד לא צדק! חבורת אפסים. השקדים חוזרים, אבל כולם שותים", "אפס צדקו. אפס! הבורסה מחזירה את הכסף ומתביישת בכם"],
+  fast: [
+    "{n} ענה מהר יותר מאיתי כשאומרים לו ״שווארמה״",
+    "{n}: האצבע הכי מהירה במזרח התיכון",
+    "{n} ענה לפני שסיימנו לכתוב את השאלה",
+    "גוגל התקשרו. הם רוצים את {n} בחזרה",
+    "מהר יותר מאיתי כשהוא שומע ״בר פתוח״. כל הכבוד {n}",
+    "{n} עובד במוסד? רק שואלים",
+    "{n} מהיר כמו שאיתי אמר ״כן״ לשחף",
+    "{n}, תשאיר קצת שקדים גם לאחרים",
+  ],
+  wrong1: ["{n} ענה כמו אחרון הבוגרים", "{n}, אפילו גוגל לא היה מציל אותך", "{n} טעה בגדול, אחי"],
+  wrongN: ["{n} ענו כמו חבורת בוגרי מכינה", "{n}, אפילו גוגל לא היה מציל אתכם", "{n} טעו בגדול"],
+  silent1: ["{n} בכלל לא ענה, ישן בעמידה", "{n} לא ענה. כנראה היה עסוק בלהסתכל על הנוף"],
+  silentN: ["{n} בכלל לא ענו, ישנים בעמידה", "{n} לא ענו. כנראה היו עסוקים במנגל"],
+  slow: ["{n} צדק, אבל בקצב של צב בפנסיה. שוט!", "{n} ענה לאט כמו האינטרנט בווילה. שוט!", "{n} עדיין קורא את השאלה. שוט!"],
+  broke: ["{n} פשט רגל! אמא שלו כבר מתקשרת לבנק", "{n} שרף את כל השקדים. הבנק המרכזי בהלם", "{n} נשאר עם כיס ריק ולב שבור", "{n} רשמית מרושש. מישהו יקנה לו שקד?"],
+};
+
+const andList = (names: string[]) => (names.length > 1 ? `${names.slice(0, -1).join(", ")} ו${names[names.length - 1]}` : (names[0] ?? ""));
+const fill = (pool: string[], who: string) => sample(pool).replaceAll("{n}", who);
+
+/** Losers of a challenge get a task. The pool only opens up late in the night. */
+const TASKS = ["לגימה גדולה 🍺", "שוט 🥃", "10 שכיבות סמיכה 💪", "לשיר לאיתי שורה משיר אהבה 🎤", "להגיד לאיתי מחמאה מביכה מול כולם", "חצי בירה בלי ידיים", "לחקות את איתי עד שמישהו צוחק", "ריקוד של 15 שניות על הדשא"];
+const POOL_TASK = "🌊 קפיצה לבריכה עם הבגדים!";
+const LATE_TASKS = [POOL_TASK, "🌊 עמידה מתחת למפל של הבריכה, 10 שניות", "שוט כפול 🥃🥃", "20 שכיבות סמיכה עם מישהו על הגב"];
+const LATE_AFTER = 8;
+const BROKE_AT = 100;
+const BROKE_TASKS = ["20 שכיבות סמיכה", "שוט לבחירת החתן", "לשיר לאיתי שיר אהבה מול כולם", "ריקוד סולו של 20 שניות על הדשא", "נאום תודה של 30 שניות לבנק המרכזי (איתי)", "לגימה ענקית מול כולם"];
+const DRAW_MS = 3500;
+
+export const isLate = (s: GameState) => s.rounds.filter((r) => r.kind !== "night" && r.status === "resolved").length >= LATE_AFTER;
+
+function pickTask(s: GameState) {
+  if (!isLate(s)) return sample(TASKS);
+  if (!s.rounds.some((r) => r.task === POOL_TASK) && Math.random() < 0.5) return POOL_TASK;
+  return sample([...TASKS, ...LATE_TASKS]);
+}
+
+function roast(s: GameState, ids: ID[], one: string[], many: string[], groom: string[]) {
+  const names = andList(ids.map((id) => nameOf(s, id)));
+  if (ids.length > 1) return fill(many, names);
+  return fill(s.players.find((p) => p.id === ids[0])?.isGroom && Math.random() < 0.6 ? groom : one, names);
+}
+
+/** Challenge settled: who won, who lost, and what the losers have to do now. */
+function verdict(s: GameState, r: RoundRec) {
+  const res = s.ledger.filter((e) => e.kind === "bet" && e.ref === r.id);
+  const lines: Record<string, string> = {};
+  r.task = null;
+  r.losers = [];
+  if (r.refunded) {
+    lines.lose = sample(LINES.none);
+    r.task = "כולם שותים לגימה 🍻";
+    r.losers = [...new Set(s.bets.filter((b) => b.roundId === r.id).map((b) => b.playerId))];
+  } else {
+    const win = res.filter((e) => e.delta > 0).map((e) => e.playerId);
+    const lose = res.filter((e) => e.delta < 0).map((e) => e.playerId);
+    if (win.length) lines.win = roast(s, win, LINES.win1, LINES.winN, LINES.groomWin);
+    if (lose.length) {
+      lines.lose = roast(s, lose, LINES.lose1, LINES.loseN, LINES.groomLose);
+      r.task = pickTask(s);
+      r.losers = lose;
+    }
+  }
+  r.lines = lines;
+}
+
+/** Quiz settled: praise the fastest, roast the wrong, the silent and the slow. */
+function quizLines(s: GameState, r: RoundRec) {
+  const answered = new Set(s.bets.filter((b) => b.roundId === r.id).map((b) => b.playerId));
+  const right = s.ledger.filter((e) => e.kind === "quiz" && e.ref === r.id).map((e) => e.playerId);
+  const lines: Record<string, string> = {};
+  if (right.length) lines.fast = fill(LINES.fast, nameOf(s, right[0]));
+  if (right.length > 1) lines.kings = `צדקו גם: ${andList(right.slice(1).map((id) => nameOf(s, id)))}`;
+  if (r.loserReason === "slow" && r.losers[0]) lines.slow = fill(LINES.slow, nameOf(s, r.losers[0]));
+  else if (r.losers.length) {
+    const wrong = r.losers.filter((id) => answered.has(id)).map((id) => nameOf(s, id));
+    const silent = r.losers.filter((id) => !answered.has(id)).map((id) => nameOf(s, id));
+    const parts: string[] = [];
+    if (wrong.length) parts.push(fill(wrong.length > 1 ? LINES.wrongN : LINES.wrong1, andList(wrong)));
+    if (silent.length) parts.push(fill(silent.length > 1 ? LINES.silentN : LINES.silent1, andList(silent)));
+    lines.shot = `${parts.join(". ")}. ${r.losers.length > 1 ? "המשימה של כולם" : "המשימה"}: לשתות שוט!`;
+  }
+  r.lines = lines;
+}
+
+/** Whoever drops under the bailout line becomes the show: a task on the TV, and a bailout waiting for the host. */
+function watchBroke(s: GameState, before: Map<ID, number>, now: number) {
+  for (const [pid, was] of before) {
+    const pl = s.players.find((p) => p.id === pid);
+    if (!pl?.token || was < BROKE_AT || balanceOf(s, pid) >= BROKE_AT) continue;
+    if (s.bailouts.some((b) => b.playerId === pid && b.status === "pending")) continue;
+    const task = sample(isLate(s) ? [...BROKE_TASKS, POOL_TASK] : BROKE_TASKS);
+    const id = newId();
+    s.bailouts.push({ id, playerId: pid, at: now, status: "pending", dare: task });
+    const line = fill(LINES.broke, pl.name);
+    pushFeed(s, now, "broke", `💸 ${line}. המשימה: ${task}`, [pid], id, { line, task });
+  }
 }
 
 /* ---------- input helpers ---------- */
@@ -236,20 +363,17 @@ function settleQuiz(s: GameState, r: RoundRec, rightId: ID, now: number) {
 /** Settle a round with its winning option and put the result on the TV. */
 function resolveWith(s: GameState, r: RoundRec, win: RoundOption, now: number) {
   if (r.status === "open") r.closesAt = Math.min(r.closesAt ?? now, now);
-  if (r.kind === "quiz") settleQuiz(s, r, win.id, now);
-  else settle(s, r, win.id, now);
+  if (r.kind === "quiz") {
+    settleQuiz(s, r, win.id, now);
+    quizLines(s, r);
+  } else {
+    settle(s, r, win.id, now);
+    if (r.kind === "challenge") verdict(s, r);
+  }
   Object.assign(r, { status: "resolved", winnerId: win.id, resolvedAt: now });
   s.lastResolvedId = r.id;
   if (r.kind !== "night" && s.activeRoundId === r.id) s.tv = { mode: "round", at: now, step: 0 };
-  if (r.kind === "quiz" && r.losers.length) {
-    const answered = new Set(s.bets.filter((b) => b.roundId === r.id).map((b) => b.playerId));
-    const list = (ids: ID[]) => ids.map((id) => nameOf(s, id)).join(", ");
-    const wrong = r.losers.filter((id) => answered.has(id));
-    const silent = r.losers.filter((id) => !answered.has(id));
-    const why = [wrong.length && `${list(wrong)} ${wrong.length > 1 ? "טעו" : "טעה"}`, silent.length && `${list(silent)} לא ${silent.length > 1 ? "ענו" : "ענה"}`].filter(Boolean).join(", ו");
-    const text = r.loserReason === "slow" ? `🥃 ${list(r.losers)} ענה אחרון. שוט!` : `🥃 ${why}. ${r.losers.length > 1 ? "שוט לכולם!" : "שוט!"}`;
-    pushFeed(s, now, "shot", text, r.losers, r.id);
-  }
+  if (r.kind === "quiz" && r.losers.length) pushFeed(s, now, "shot", `🥃 ${r.lines.shot ?? r.lines.slow ?? "שוט!"}`, r.losers, r.id);
   if (r.kind === "night") {
     const winners = s.bets.filter((b) => b.roundId === r.id && b.optionId === win.id).map((b) => b.playerId);
     pushFeed(s, now, "result", `🌙 הוכרע: ${r.title} — ״${win.label}״`, winners, r.id);
@@ -298,7 +422,7 @@ function wheelSegments(s: GameState, kind: WheelKind): [string, ID[]][] {
   const lastRound = s.rounds.find((r) => r.id === s.lastResolvedId);
   const losers = !lastRound
     ? []
-    : lastRound.kind === "quiz"
+    : lastRound.losers.length
       ? lastRound.losers
       : [...new Set(s.ledger.filter((e) => e.kind === "bet" && e.ref === lastRound.id && e.delta < 0).map((e) => e.playerId))];
   const below = st.filter((p) => p.balance < s.settings.startBalance).map((p) => p.id);
@@ -311,7 +435,7 @@ function wheelSegments(s: GameState, kind: WheelKind): [string, ID[]][] {
     ["🤵 החתן בוחר מי שותה", [groom]],
     [`💸 כל מי שמתחת ל־${fmt(s.settings.startBalance)} שותה`, below],
     ["🔥 מס עשירים: המלך שותה", [king]],
-    ["😇 הפעם אף אחד לא שותה", []],
+    isLate(s) ? ["🌊 המקום האחרון קופץ לבריכה!", [last]] : ["😇 הפעם אף אחד לא שותה", []],
     ["🍋 שני האחרונים שותים", last2 ? [last2, last] : [last]],
   ];
 }
@@ -362,6 +486,7 @@ const PLAYER: Record<string, Handler> = {
     const pl = me(s, c);
     const r = findRound(s, c.p.roundId);
     if (r.kind !== "night" && s.activeRoundId !== r.id) fail("הסיבוב הזה כבר לא פעיל");
+    if (r.status === "open" && r.openedAt && c.now < r.openedAt) fail("רגע, עוד מגרילים 🎰");
     if (!bettingOpen(r, c.now)) fail(r.kind === "quiz" ? "הזמן לענות נגמר" : "ההימורים כבר נסגרו");
     if (r.noBet.includes(pl.id)) fail(r.kind === "quiz" ? "על השאלה הזאת אתה לא עונה 😉" : "משתתפי האתגר לא מהמרים בסיבוב הזה");
     const opt = r.options.find((o) => o.id === c.p.optionId) ?? fail("האפשרות הזאת לא קיימת");
@@ -414,7 +539,8 @@ const PLAYER: Record<string, Handler> = {
     m.doneAt = c.now;
     m.claimedAt = c.now;
     s.ledger.push({ id: newId(), playerId: pl.id, delta: m.reward, kind: "mission", ref: m.id, note: "משימה סודית", at: c.now });
-    pushFeed(s, c.now, "mission", "🚨 מבזק: משימה סודית בוצעה הרגע! מישהו כאן עבד עליכם.", [], m.id);
+    const line = fill(LINES.mission, pl.name);
+    pushFeed(s, c.now, "mission", `🚨 ${line} (+${fmt(m.reward)})`, [pl.id], m.id, { line, amount: m.reward });
   },
 
   unclaimMission(s, c) {
@@ -514,6 +640,8 @@ const ADMIN: Record<string, Handler> = {
       refunded: false,
       losers: [],
       loserReason: null,
+      lines: {},
+      task: null,
     };
     s.rounds.push(r);
     return { id: r.id };
@@ -557,9 +685,33 @@ const ADMIN: Record<string, Handler> = {
       s.bets = s.bets.filter((b) => b.roundId !== r.id);
       r.openedAt = now;
     }
-    Object.assign(r, { status: "open", closesAt: seconds > 0 ? now + seconds * 1000 : null, winnerId: null, resolvedAt: null, refunded: false });
+    Object.assign(r, { status: "open", closesAt: seconds > 0 ? now + seconds * 1000 : null, winnerId: null, resolvedAt: null, refunded: false, losers: [], loserReason: null, lines: {}, task: null });
     s.activeRoundId = r.id;
     s.tv = { mode: "round", at: now, step: 0 };
+  },
+
+  /** The host decides when, the pool decides what: a random challenge or quiz, opened after the TV's reel spins. */
+  drawRound(s, { p, now }) {
+    const kind: RoundKind = p.kind === "quiz" ? "quiz" : "challenge";
+    const cur = activeRound(s);
+    let skip: ID | null = null;
+    if (cur && (cur.status === "open" || cur.status === "closed")) {
+      if (!p.redraw) fail(`הסיבוב ״${cur.title}״ עדיין פעיל. קודם הכריזו תוצאה או בטלו אותו`);
+      if (s.bets.some((b) => b.roundId === cur.id)) fail("כבר יש הימורים על הסיבוב הזה. בטלו אותו קודם");
+      resetRound(cur);
+      skip = cur.id;
+    }
+    const pool = s.rounds.filter((r) => r.kind === kind && r.status === "draft" && r.id !== skip);
+    if (!pool.length) fail(kind === "quiz" ? "נגמרו שאלות הידע במאגר" : "נגמרו האתגרים במאגר");
+    const r = sample(pool);
+    s.bets = s.bets.filter((b) => b.roundId !== r.id);
+    const start = now + DRAW_MS;
+    Object.assign(r, { status: "open", openedAt: start, closesAt: r.seconds > 0 ? start + r.seconds * 1000 : null, winnerId: null, resolvedAt: null, refunded: false, losers: [], loserReason: null, lines: {}, task: null });
+    s.activeRoundId = r.id;
+    s.tv = { mode: "round", at: now, step: 0 };
+    const reel = shuffle(s.rounds.filter((x) => x.kind === kind && x !== r)).slice(0, 9);
+    s.draw = { at: now, roundId: r.id, titles: [...reel, r].map((x) => `${x.emoji} ${x.title}`) };
+    return { id: r.id, title: r.title };
   },
 
   openAllNight(s, { now }) {
@@ -608,14 +760,14 @@ const ADMIN: Record<string, Handler> = {
       s.tv = { mode: "round", at: now, step: 0 };
     }
     s.ledger = s.ledger.filter((e) => !((e.kind === "bet" || e.kind === "quiz") && e.ref === r.id));
-    Object.assign(r, { status: "closed", winnerId: null, resolvedAt: null, refunded: false, losers: [], loserReason: null });
+    Object.assign(r, { status: "closed", winnerId: null, resolvedAt: null, refunded: false, losers: [], loserReason: null, lines: {}, task: null });
   },
 
   cancelRound(s, { p, now }) {
     const r = findRound(s, p.roundId);
     s.ledger = s.ledger.filter((e) => !((e.kind === "bet" || e.kind === "quiz") && e.ref === r.id));
     s.bets = s.bets.filter((b) => b.roundId !== r.id);
-    Object.assign(r, { status: "draft", openedAt: null, closesAt: null, winnerId: null, resolvedAt: null, refunded: false, losers: [], loserReason: null });
+    resetRound(r);
     if (s.lastResolvedId === r.id) s.lastResolvedId = null;
     if (s.activeRoundId === r.id) {
       s.activeRoundId = null;
@@ -714,11 +866,11 @@ const ADMIN: Record<string, Handler> = {
       Object.assign(a, { status: "right", missionId: m.id });
       s.ledger.push({ id: newId(), playerId: a.by, delta: s.settings.catchReward, kind: "catch", ref: a.id, note: `תפס את ${suspect}`, at: now });
       dealTo(s, findPlayer(s, a.suspect));
-      pushFeed(s, now, "caught", `🕵️ ${by} תפס את ${suspect} על חם! המשימה שנשרפה: ${m.text}`, [a.by, a.suspect], a.id);
+      pushFeed(s, now, "caught", `🕵️ ${by} תפס את ${suspect} על חם! המשימה שנשרפה: ${m.text}. ${sample(LINES.caught)}`, [a.by, a.suspect], a.id);
     } else {
       a.status = "wrong";
       s.ledger.push({ id: newId(), playerId: a.by, delta: -s.settings.falsePenalty, kind: "penalty", ref: a.id, note: "האשמת שווא", at: now });
-      pushFeed(s, now, "miss", `🤡 האשמת שווא! ${by} חשד ב${suspect} ופספס`, [a.by, a.suspect], a.id);
+      pushFeed(s, now, "miss", `🤡 האשמת שווא! ${by} חשד ב${suspect} ופספס. ${sample(LINES.miss)}`, [a.by, a.suspect], a.id);
     }
   },
 
@@ -729,7 +881,7 @@ const ADMIN: Record<string, Handler> = {
       return;
     }
     const amount = s.settings.bailoutAmount;
-    Object.assign(b, { status: "granted", dare: sample(DARES) });
+    Object.assign(b, { status: "granted", dare: b.dare ?? sample(DARES) });
     s.ledger.push({ id: newId(), playerId: b.playerId, delta: amount, kind: "bailout", ref: b.id, note: "חילוץ ממשלתי", at: now });
     pushFeed(s, now, "bailout", `🆘 חילוץ ממשלתי ל${nameOf(s, b.playerId)}: +${fmt(amount)}. בתמורה: ${b.dare}`, [b.playerId], b.id);
   },
@@ -825,13 +977,17 @@ const ADMIN: Record<string, Handler> = {
       catchReward: int(d.catchReward, cur.catchReward, 0, 1_000_000),
       falsePenalty: int(d.falsePenalty, cur.falsePenalty, 0, 1_000_000),
       bailoutAmount: int(d.bailoutAmount, cur.bailoutAmount, 0, 1_000_000),
+      prize1: str(d.prize1, 120) || cur.prize1,
+      prize2: str(d.prize2, 120) || cur.prize2,
+      prize3: str(d.prize3, 120) || cur.prize3,
+      prizeLast: str(d.prizeLast, 120) || cur.prizeLast,
     };
   },
 
   resetGame(s, { p, now }) {
-    Object.assign(s, { bets: [], ledger: [], accusations: [], bailouts: [], feed: [], wheel: null, seq: 0, activeRoundId: null, lastResolvedId: null });
+    Object.assign(s, { bets: [], ledger: [], accusations: [], bailouts: [], feed: [], wheel: null, draw: null, seq: 0, activeRoundId: null, lastResolvedId: null });
     for (const r of s.rounds)
-      Object.assign(r, { status: "draft", openedAt: null, closesAt: null, winnerId: null, resolvedAt: null, refunded: false, losers: [], loserReason: null });
+      resetRound(r);
     for (const m of s.missions) {
       if (m.status === "burned" || p.undeal) resetMission(m);
       else Object.assign(m, { status: "open", claimedAt: null, doneAt: null, caughtBy: null });
@@ -853,6 +1009,13 @@ const ADMIN: Record<string, Handler> = {
 };
 
 export function dispatch(s: GameState, c: Ctx): unknown {
+  const before = new Map(s.players.filter((p) => p.token).map((p) => [p.id, balanceOf(s, p.id)]));
+  const out = route(s, c);
+  if (c.a !== "reseed" && c.a !== "resetGame") watchBroke(s, before, c.now);
+  return out;
+}
+
+function route(s: GameState, c: Ctx): unknown {
   if (Object.hasOwn(PLAYER, c.a)) return PLAYER[c.a](s, c);
   if (Object.hasOwn(ADMIN, c.a)) {
     if (!c.admin) fail("צריך הרשאת מנחה");

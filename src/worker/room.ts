@@ -15,6 +15,9 @@ interface Att {
 const PARTS = ["players", "rounds", "bets", "missions", "ledger"] as const;
 const IMG_CHUNK = 96 * 1024;
 
+const VOICE =
+  "Speak natural Israeli Hebrew. You are an over-the-top, sarcastic game-show announcer at a wild bachelor party: loud, energetic, punchy, with comedic timing. Never translate, read exactly what is written.";
+
 const json = (data: unknown, status = 200) =>
   new Response(JSON.stringify(data), {
     status,
@@ -114,6 +117,7 @@ export class GameRoom extends DurableObject<Env> {
       if (path === "/api/view") return json(this.view(req.headers.get("x-token"), req.headers.get("x-key")));
       if (path === "/api/act" && req.method === "POST") return await this.act(req);
       if (path === "/api/upload" && req.method === "POST") return await this.upload(req);
+      if (path === "/api/tts" && req.method === "POST") return await this.tts(req);
       if (path.startsWith("/media/")) return await this.media(path.slice("/media/".length));
     } catch (e) {
       console.error("request failed", path, e);
@@ -181,18 +185,30 @@ export class GameRoom extends DurableObject<Env> {
     if (!["image/jpeg", "image/png", "image/webp"].includes(type)) return json({ ok: false, err: "אפשר להעלות רק תמונות" }, 415);
     if (buf.byteLength < 100 || buf.byteLength > 2_500_000) return json({ ok: false, err: "התמונה גדולה מדי" }, 413);
     const id = newId(14);
-    const n = Math.ceil(buf.byteLength / IMG_CHUNK);
-    const entries: Record<string, unknown> = { [`img:${id}`]: { type, n } };
-    for (let i = 0; i < n; i++) entries[`img:${id}:${i}`] = buf.slice(i * IMG_CHUNK, (i + 1) * IMG_CHUNK);
-    await this.ctx.storage.put(entries);
+    await this.writeBlob(`img:${id}`, type, buf);
     return json({ ok: true, url: `/media/${id}` });
   }
 
   private async media(id: string) {
     if (!/^[a-z0-9]{6,40}$/.test(id)) return new Response("bad id", { status: 400 });
-    const meta = await this.ctx.storage.get<{ type: string; n: number }>(`img:${id}`);
-    if (!meta) return new Response("not found", { status: 404 });
-    const keys = Array.from({ length: meta.n }, (_, i) => `img:${id}:${i}`);
+    const blob = await this.readBlob(`img:${id}`);
+    if (!blob) return new Response("not found", { status: 404 });
+    return new Response(blob.body, {
+      headers: { "content-type": blob.type, "cache-control": "public, max-age=31536000, immutable" },
+    });
+  }
+
+  private async writeBlob(key: string, type: string, buf: ArrayBuffer) {
+    const n = Math.ceil(buf.byteLength / IMG_CHUNK);
+    const entries: Record<string, unknown> = { [key]: { type, n } };
+    for (let i = 0; i < n; i++) entries[`${key}:${i}`] = buf.slice(i * IMG_CHUNK, (i + 1) * IMG_CHUNK);
+    await this.ctx.storage.put(entries);
+  }
+
+  private async readBlob(key: string): Promise<{ type: string; body: Uint8Array } | null> {
+    const meta = await this.ctx.storage.get<{ type: string; n: number }>(key);
+    if (!meta) return null;
+    const keys = Array.from({ length: meta.n }, (_, i) => `${key}:${i}`);
     const parts = await this.ctx.storage.get<ArrayBuffer>(keys);
     const chunks = keys.map((k) => new Uint8Array(parts.get(k) ?? new ArrayBuffer(0)));
     const body = new Uint8Array(chunks.reduce((a, c) => a + c.byteLength, 0));
@@ -201,9 +217,40 @@ export class GameRoom extends DurableObject<Env> {
       body.set(c, o);
       o += c.byteLength;
     }
-    return new Response(body, {
-      headers: { "content-type": meta.type, "cache-control": "public, max-age=31536000, immutable" },
+    return { type: meta.type, body };
+  }
+
+  /* ---------- the announcer: reads out lines the game itself wrote (never arbitrary text), cached once made ---------- */
+
+  private lineFor(ref: string): string | null {
+    const [kind, id, key] = ref.split(":");
+    if (kind === "feed") return this.s.feed.find((e) => e.id === id)?.text ?? null;
+    if (kind === "round" && key) return this.s.rounds.find((r) => r.id === id)?.lines?.[key] ?? null;
+    return null;
+  }
+
+  private async tts(req: Request) {
+    const body = (await req.json().catch(() => ({}))) as { ref?: unknown };
+    const text = typeof body.ref === "string" ? this.lineFor(body.ref) : null;
+    const clean = (text ?? "").replace(/[\p{Extended_Pictographic}\u200d\ufe0f]/gu, "").replace(/[()+]/g, " ").replace(/\s+/g, " ").trim();
+    if (!clean || !this.env.OPENAI_API_KEY) return json({ ok: false, err: "no line" }, 404);
+    const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(clean)));
+    const key = `tts:${[...digest.slice(0, 12)].map((b) => b.toString(16).padStart(2, "0")).join("")}`;
+    const headers = { "content-type": "audio/mpeg", "cache-control": "public, max-age=86400" };
+    const cached = await this.readBlob(key);
+    if (cached) return new Response(cached.body, { headers });
+    const res = await fetch("https://api.openai.com/v1/audio/speech", {
+      method: "POST",
+      headers: { authorization: `Bearer ${this.env.OPENAI_API_KEY}`, "content-type": "application/json" },
+      body: JSON.stringify({ model: "gpt-4o-mini-tts", voice: "ash", input: clean, instructions: VOICE, response_format: "mp3" }),
     });
+    if (!res.ok) {
+      console.error("tts failed", res.status, (await res.text()).slice(0, 300));
+      return json({ ok: false, err: "tts failed" }, 502);
+    }
+    const audio = await res.arrayBuffer();
+    await this.writeBlob(key, "audio/mpeg", audio);
+    return new Response(audio, { headers });
   }
 
   /* ---------- realtime ---------- */

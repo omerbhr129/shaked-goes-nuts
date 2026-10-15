@@ -84,7 +84,7 @@ ok(!(await act("bet", { roundId: r1.id, optionId: "yes", amount: 100 }, { token:
 const plan = { benharoosh: ["yes", 200], ayalon: ["no", 500], drori: ["yes", 50], birman: ["no", 100], yali: ["yes", 300], sisu: ["no", 250], shmay: ["yes", 150] };
 for (const [id, [opt, amt]] of Object.entries(plan)) ok((await act("bet", { roundId: r1.id, optionId: opt, amount: amt }, { token: tokens[id] })).ok, `${id} bet ${amt} on ${opt}`);
 let p = await pub();
-ok(p.round.bets === null && p.round.staked === 1550, "bets hidden while open, staked 1550");
+ok(p.round.bets === null && p.round.staked === 1550 && p.round.stats.every((x) => x.count === 0 && x.total === 0), "while open nobody sees the split, only the pot (1550)");
 await admin("closeRound", { roundId: r1.id });
 await admin("resolveRound", { roundId: r1.id, optionId: "yes" });
 p = await pub();
@@ -97,6 +97,9 @@ ok(bal(p, "ayalon") === 1529 && bal(p, "benharoosh") === 800, "changing the resu
 await admin("undoResolve", { roundId: r1.id });
 ok((await pub()).players.every((x) => x.balance === 1000), "undo puts every balance back");
 await admin("resolveRound", { roundId: r1.id, optionId: "yes" });
+p = await pub();
+ok(p.round.lines.win && p.round.lines.lose && p.round.task, `funny lines and a task for the losers: ${p.round.lines.lose} → ${p.round.task}`);
+ok(JSON.stringify([...p.round.losers].sort()) === JSON.stringify(["ayalon", "birman", "sisu"]), "the losers of the challenge are on the hook");
 
 console.log("night bets run in parallel");
 r = await admin("openAllNight");
@@ -126,7 +129,7 @@ r = await act("claimMission", { missionId: ayalonM.id }, { token: tokens.ayalon 
 p = await pub();
 ok(r.ok && bal(p, "ayalon") === before + ayalonM.reward, `marking done pays ${ayalonM.reward} at once`);
 const flash = p.feed.find((e) => e.kind === "mission" && e.ref === ayalonM.id);
-ok(flash && flash.players.length === 0 && !flash.text.includes(ayalonM.text), "TV flash is anonymous and hides the mission");
+ok(flash && flash.players[0] === "ayalon" && !flash.text.includes(ayalonM.text) && flash.data?.amount === ayalonM.reward, `TV names him but hides the mission: ${flash?.text}`);
 ok(!(await act("claimMission", { missionId: ayalonM.id }, { token: tokens.drori })).ok, "cannot claim someone else's mission");
 r = await act("accuse", { suspectId: "ayalon", text: "הוא ניסה לגרום לאיתי להגיד משהו" }, { token: tokens.drori });
 ok(r.ok, "drori accuses ayalon");
@@ -169,6 +172,7 @@ ok(qd("ayalon") === 0 && qd("birman") === 0 && qd("sisu") === 0, "wrong answers 
 ok(JSON.stringify(p.round.losers) === JSON.stringify(["ayalon", "birman", "sisu"]) && p.round.loserReason === "wrong", `wrong and silent drink: ${p.round.losers}`);
 const shot = p.feed.find((e) => e.kind === "shot" && e.ref === q2.id);
 ok(shot && shot.players.length === 3 && shot.text.includes("שוט"), `shot announced: ${shot?.text}`);
+ok(p.round.lines.fast?.includes("שמאי") && p.round.lines.shot?.includes("סיסו") && p.round.lines.shot?.includes("איילון"), `fastest praised, the rest roasted: ${p.round.lines.fast} | ${p.round.lines.shot}`);
 ok(p.round.bets.length === 7 && p.round.results.find((x) => x.playerId === "shmay").delta === 150, "after the reveal everyone sees who answered what");
 
 console.log("quiz: everyone right → the slowest drinks, and it closes itself");
@@ -178,6 +182,7 @@ for (const id of ids) await act("bet", { roundId: q5.id, optionId: "o1", amount:
 p = await pub();
 ok(p.round.status === "resolved", "last answer closed the quiz and revealed it");
 ok(p.round.losers.length === 1 && p.round.losers[0] === ids[ids.length - 1] && p.round.loserReason === "slow", `slowest drinks: ${p.round.losers}`);
+ok(p.round.lines.slow?.includes("שמאי"), `the slow one gets roasted: ${p.round.lines.slow}`);
 
 console.log("quiz: Itay answers live, the host picks the answer");
 const q1 = vq.find((x) => x.id === "q1");
@@ -210,16 +215,44 @@ await admin("cancelRound", { roundId: tq.id });
 await admin("deleteRound", { roundId: tq.id });
 for (const r0 of (await view({ key: KEY })).admin.rounds.filter((x) => x.title.startsWith("בדיקה"))) await admin("deleteRound", { roundId: r0.id });
 
+console.log("random draw from the pool");
+const drawn = await admin("drawRound", { kind: "challenge" });
+p = await pub();
+ok(drawn.ok && p.round.id === drawn.r.id && p.draw?.roundId === drawn.r.id && p.draw.titles.at(-1).includes(p.round.title), `drawn: ${drawn.r?.title}`);
+const bettor = ids.find((id) => !p.round.noBet.includes(id));
+const early = await act("bet", { roundId: drawn.r.id, optionId: p.round.options[0].id, amount: 50 }, { token: tokens[bettor] });
+ok(!early.ok && /מגרילים/.test(early.err), "no bets while the reel spins");
+const again = await admin("drawRound", { kind: "challenge", redraw: true });
+ok(again.ok && again.r.id !== drawn.r.id, "draw again while nobody has bet");
+p = await pub();
+const bettor2 = ids.find((id) => !p.round.noBet.includes(id));
+await sleep(3700);
+ok((await act("bet", { roundId: again.r.id, optionId: p.round.options[0].id, amount: 50 }, { token: tokens[bettor2] })).ok, "after the reel, bets are open");
+ok(!(await admin("drawRound", { kind: "challenge", redraw: true })).ok, "no redraw once someone has bet");
+await admin("cancelRound", { roundId: again.r.id });
+ok((await admin("drawRound", { kind: "quiz" })).ok && (await pub()).round.kind === "quiz", "a random quiz too");
+await admin("cancelRound", { roundId: (await pub()).round.id });
+
+console.log("announcer");
+const said = (await pub()).feed.at(-1);
+const tts = await fetch(`${BASE}/api/tts`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ref: `feed:${said.id}` }) });
+ok(tts.ok && tts.headers.get("content-type") === "audio/mpeg" && (await tts.arrayBuffer()).byteLength > 2000, "a line from the game comes back as speech");
+const nope = await fetch(`${BASE}/api/tts`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ref: "feed:nonsense" }) });
+ok(nope.status === 404, "anything else is refused");
+
 console.log("bailout, wheel, awards");
 await admin("adjust", { playerId: "sisu", delta: -2000, note: "בדיקה" });
-r = await act("requestBailout", {}, { token: tokens.sisu });
-ok(r.ok, "broke player asks for a bailout");
+p = await pub();
+const brokeEv = p.feed.find((e) => e.kind === "broke" && e.players[0] === "sisu");
+ok(brokeEv && brokeEv.data?.task, `going broke puts him on the TV with a task: ${brokeEv?.text}`);
+const bail = (await view({ key: KEY })).admin.bailouts.find((b) => b.status === "pending" && b.playerId === "sisu");
+ok(bail && bail.dare === brokeEv.data.task, "and opens a bailout for the host with that task");
+ok(!(await act("requestBailout", {}, { token: tokens.sisu })).ok, "no double bailout requests");
 ok(!(await act("requestBailout", {}, { token: tokens.shmay })).ok, "rich players cannot ask for a bailout");
-const bail = (await view({ key: KEY })).admin.bailouts.find((b) => b.status === "pending");
 const sisuBefore = bal(await pub(), "sisu");
 await admin("judgeBailout", { bailoutId: bail.id, approve: true });
 p = await pub();
-ok(bal(p, "sisu") === sisuBefore + 300 && p.feed.some((e) => e.kind === "bailout"), "bailout paid and announced with a dare");
+ok(bal(p, "sisu") === sisuBefore + 300 && p.feed.some((e) => e.kind === "bailout" && e.text.includes(bail.dare)), "bailout paid, with the same task");
 r = await admin("spinWheel", { kind: "drink" });
 p = await pub();
 ok(r.ok && p.wheel && p.wheel.segments.length === 10 && p.wheel.label === p.wheel.segments[p.wheel.index], "drinking wheel lands on a segment");

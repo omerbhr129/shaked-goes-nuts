@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { ClientView, PlayerPub } from "../../shared/types";
-import { cls, fmt, kingAndLast, resizeImage, useMedia } from "../lib";
+import { cls, fmt, kingAndLast, lsGet, lsSet, resizeImage, useMedia } from "../lib";
 import { creds, useGame, type Game } from "../net";
 import { sfx } from "../sound";
 import { Avatar, Coin, ConnBanner, Led, Marquee, MuteButton, Sheet, ask, toast } from "../ui";
@@ -8,7 +8,7 @@ import { BetTab } from "./BetTab";
 import { BoardTab } from "./BoardTab";
 import { JoinScreen } from "./Join";
 import { MissionsTab } from "./MissionsTab";
-import { RodeoItay, useIntro } from "../rodeo";
+import { RodeoPhoto, useIntro } from "../rodeo";
 import { FeedWatcher, MissionWatcher, ResultOverlay } from "./Overlays";
 
 type Tab = "bet" | "missions" | "board";
@@ -82,10 +82,48 @@ export function PlayerApp() {
           </nav>
         </>
       )}
+      <HowTo view={view} />
       <ResultOverlay view={view} meId={me.id} />
       <MissionWatcher view={view} />
       <FeedWatcher view={view} meId={me.id} />
     </div>
+  );
+}
+
+/** Once per device: the whole game on one screen. */
+function HowTo({ view }: { view: ClientView }) {
+  const [open, setOpen] = useState(() => !lsGet("sgn.howto"));
+  const { startBalance, currency, prize1, prizeLast, catchReward } = view.pub.settings;
+  const close = () => {
+    lsSet("sgn.howto", "1");
+    setOpen(false);
+  };
+  return (
+    <Sheet open={open} onClose={close} title="איך משחקים">
+      <ul className="howto">
+        <li>
+          <b>💰 יש לך {fmt(startBalance)} {currency}.</b> מי שמסיים הכי עשיר מנצח, ובבוקר: {prize1}.
+        </li>
+        <li>
+          <b>📈 הבורסה:</b> המנחה פותח אתגר או שאלת ידע, ואתם מהמרים או עונים כאן. אף אחד לא רואה על מה הימרתם עד שהזמן נגמר.
+        </li>
+        <li>
+          <b>❓ שאלות ידע:</b> צודקים מקבלים {currency}. טועים, או עונים אחרונים, שותים שוט על המסך הגדול.
+        </li>
+        <li>
+          <b>🌙 הימורי לילה:</b> פתוחים כל הלילה, למטה בלשונית הבורסה.
+        </li>
+        <li>
+          <b>🤫 משימות סודיות:</b> יש לך 3. מבצעים בלי שאף אחד ישים לב, ולוחצים ״ביצעתי״. חושדים במישהו? ״תפסתי!״ שווה {fmt(catchReward)}.
+        </li>
+        <li>
+          <b>🍋 המקום האחרון בבוקר:</b> {prizeLast}.
+        </li>
+      </ul>
+      <button type="button" className="btn btn-gold btn-xl" onClick={close}>
+        יאללה, מתחילים
+      </button>
+    </Sheet>
   );
 }
 
@@ -111,6 +149,7 @@ function TopBar({ me, view, game, isKing }: { me: PlayerPub; view: ClientView; g
         <span className="me-name">{me.name}</span>
       </button>
       <div className="meter" aria-label={`יתרה: ${me.balance} ${view.pub.settings.currency}`}>
+        <span className="meter-label">השקדים שלי</span>
         <Led value={me.balance} />
         <Coin size={20} />
       </div>
@@ -122,14 +161,17 @@ function TopBar({ me, view, game, isKing }: { me: PlayerPub; view: ClientView; g
 
 function BailoutBanner({ view, game }: { view: ClientView; game: Game }) {
   const { currency, bailoutAmount } = view.pub.settings;
-  const pending = view.me!.bailout?.status === "pending";
+  const bail = view.me!.bailout;
+  const pending = bail?.status === "pending";
   const [busy, setBusy] = useState(false);
   return (
     <div className="bailout" role="status">
       <span>
-        {pending
-          ? "🆘 בקשת החילוץ אצל המנחה. תתכוננו לעונש קטן…"
-          : `🆘 נגמרו ה${currency}? אפשר לבקש חילוץ ממשלתי של ${fmt(bailoutAmount)}, בתמורה לעונש קטן.`}
+        {pending && bail?.dare
+          ? `💸 פשטת רגל! המשימה שלך: ${bail.dare}. אחרי שתבצע, המנחה יאשר לך חילוץ של ${fmt(bailoutAmount)}.`
+          : pending
+            ? "🆘 בקשת החילוץ אצל המנחה. תתכוננו לעונש קטן…"
+            : `🆘 נגמרו ה${currency}? אפשר לבקש חילוץ ממשלתי של ${fmt(bailoutAmount)}, בתמורה לעונש קטן.`}
       </span>
       {!pending && (
         <button
@@ -212,8 +254,7 @@ export function Splash() {
   return (
     <div className="splash">
       <Marquee size="m" />
-      <RodeoItay size={250} />
-      <p className="splash-text">מחברים אתכם לבורסה…</p>
+      <RodeoPhoto size={300} />
     </div>
   );
 }

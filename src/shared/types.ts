@@ -5,7 +5,7 @@ export type MissionStatus = "open" | "pending" | "done" | "burned";
 export type RoundStatus = "draft" | "open" | "closed" | "resolved";
 export type RoundKind = "challenge" | "night" | "quiz";
 export type TvMode = "lobby" | "round" | "board" | "night" | "missions" | "awards" | "winner";
-export type FeedKind = "mission" | "caught" | "miss" | "bailout" | "wheel" | "result" | "shot";
+export type FeedKind = "mission" | "caught" | "miss" | "bailout" | "wheel" | "result" | "shot" | "broke";
 export type TargetSlot = "G" | "X" | "Y";
 export type WheelKind = "drink" | "punish";
 
@@ -18,6 +18,11 @@ export interface Settings {
   catchReward: number;
   falsePenalty: number;
   bailoutAmount: number;
+  /** what 1st, 2nd, 3rd and the last place get in the morning */
+  prize1: string;
+  prize2: string;
+  prize3: string;
+  prizeLast: string;
 }
 
 export interface PlayerRec {
@@ -64,6 +69,17 @@ export interface RoundRec {
   /** quiz only: who drinks — wrong answers, or the slowest if everyone was right */
   losers: ID[];
   loserReason: "wrong" | "slow" | null;
+  /** one-liners for the TV moments (fast, kings, shot, slow, win, lose), written when the round is settled */
+  lines: Record<string, string>;
+  /** challenge: what the losers have to do */
+  task: string | null;
+}
+
+/** A round picked at random by the host: the TV spins a reel of titles before it opens. */
+export interface DrawState {
+  at: number;
+  roundId: ID;
+  titles: string[];
 }
 
 export interface Bet {
@@ -128,6 +144,8 @@ export interface FeedEvent {
   text: string;
   players: ID[];
   ref: ID | null;
+  /** for the big TV moments: the line on its own, the task, the almonds */
+  data?: { line?: string; task?: string; amount?: number };
 }
 
 export interface WheelSpin {
@@ -162,6 +180,7 @@ export interface GameState {
   tv: TvState;
   activeRoundId: ID | null;
   lastResolvedId: ID | null;
+  draw: DrawState | null;
 }
 
 /* ---------- views sent to clients ---------- */
@@ -212,6 +231,8 @@ export interface RoundPub {
   refunded: boolean;
   losers: ID[];
   loserReason: "wrong" | "slow" | null;
+  lines: Record<string, string>;
+  task: string | null;
   number: number;
   stats: OptionStat[];
   /** sum of all stakes (the bank bonus comes on top) */
@@ -262,6 +283,8 @@ export interface PublicView {
   reveal: RevealEntry[] | null;
   /** only during the awards ceremony */
   stats: PlayerStats[] | null;
+  draw: DrawState | null;
+  missionsDone: number;
 }
 
 export interface MyBet {

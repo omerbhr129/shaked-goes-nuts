@@ -4,8 +4,8 @@ import { activeRound, available, bettingOpen } from "./logic";
 function roundPub(s: GameState, r: RoundRec, now: number): RoundPub {
   const bets = s.bets.filter((b) => b.roundId === r.id).sort((a, b) => a.at - b.at);
   const open = bettingOpen(r, now);
-  // a quiz keeps the crowd's answers hidden until time is up, so nobody just copies the majority
-  const hideSplit = r.kind === "quiz" && open;
+  // nobody sees how the others bet (or answered) until time is up; then it all comes out at once
+  const hideSplit = open;
   let staked = 0;
   const stats = r.options.map((o) => {
     let count = 0;
@@ -39,6 +39,8 @@ function roundPub(s: GameState, r: RoundRec, now: number): RoundPub {
     refunded: r.refunded,
     losers: r.status === "resolved" ? r.losers : [],
     loserReason: r.status === "resolved" ? r.loserReason : null,
+    lines: r.status === "resolved" ? r.lines : {},
+    task: r.status === "resolved" ? r.task : null,
     number: s.rounds.filter((x) => x.kind !== "night").indexOf(r) + 1,
     stats,
     staked,
@@ -90,7 +92,7 @@ function playerStats(s: GameState): PlayerStats[] {
         st.missionAlmonds += m.reward;
       } else if (m.status === "burned") st.timesCaught++;
     }
-    for (const r of s.rounds) if (r.losers.includes(p.id)) st.shots++;
+    for (const r of s.rounds) if (r.kind === "quiz" && r.losers.includes(p.id)) st.shots++;
     for (const a of s.accusations) {
       if (a.by !== p.id) continue;
       if (a.status === "right") st.catches++;
@@ -153,6 +155,8 @@ export function buildPublic(s: GameState, now: number, online: Set<ID>): PublicV
           }))
         : null,
     stats: s.tv.mode === "awards" || s.tv.mode === "winner" ? playerStats(s) : null,
+    draw: s.draw,
+    missionsDone: s.missions.filter((m) => m.status === "done").length,
   };
 }
 

@@ -1420,3 +1420,99 @@
   font-size: 1.45rem;
   color: var(--gold-hi);
 }
+
+/* ---------- v4: clearer money, the draw, how to play, the morning ---------- */
+
+.meter {
+  position: relative;
+}
+
+.meter-label {
+  position: absolute;
+  top: -9px;
+  inset-inline-start: 10px;
+  padding: 0 5px;
+  border-radius: 6px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  line-height: 1.4;
+  color: var(--gold);
+  background: #060a05;
+}
+
+.drawcard {
+  justify-items: center;
+  text-align: center;
+  padding-block: 34px;
+}
+
+.drawcard-slot {
+  font-size: 64px;
+  line-height: 1;
+  animation: pulse 0.35s ease-in-out infinite alternate;
+}
+
+.night-count {
+  margin: 6px 0 0;
+  font-weight: 700;
+  color: var(--gold-hi);
+}
+
+.night-pot {
+  display: grid;
+  justify-items: end;
+  gap: 4px;
+}
+
+.night-cta {
+  padding: 2px 9px;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 800;
+  white-space: nowrap;
+  color: var(--ink);
+  background: var(--gold);
+}
+
+.howto {
+  display: grid;
+  gap: 12px;
+  margin: 0 0 18px;
+  padding: 0;
+  list-style: none;
+  line-height: 1.45;
+}
+
+.howto li {
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(0, 0, 0, 0.22);
+}
+
+.howto b {
+  color: var(--gold-hi);
+}
+
+.morning {
+  display: grid;
+  gap: 6px;
+  padding: 14px 16px;
+}
+
+.morning h3 {
+  font-size: 1.1rem;
+  color: var(--gold-hi);
+}
+
+.morning p {
+  margin: 0;
+  line-height: 1.4;
+}
+
+.morning-last {
+  color: var(--down);
+}
+
+.idle .rodeo {
+  margin: -6px auto 4px;
+}

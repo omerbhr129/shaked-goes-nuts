@@ -202,7 +202,12 @@ function Settings({ view, run }: { view: ClientView; run: Run }) {
     catchReward: s.catchReward,
     falsePenalty: s.falsePenalty,
     bailoutAmount: s.bailoutAmount,
+    prize1: s.prize1,
+    prize2: s.prize2,
+    prize3: s.prize3,
+    prizeLast: s.prizeLast,
   });
+  const text = (k: "prize1" | "prize2" | "prize3" | "prizeLast") => (e: React.ChangeEvent<HTMLInputElement>) => setF((x) => ({ ...x, [k]: e.target.value }));
   const num = (k: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement>) => setF((x) => ({ ...x, [k]: Number(e.target.value) }));
   return (
     <div className="settings felt">
@@ -231,6 +236,25 @@ function Settings({ view, run }: { view: ClientView; run: Run }) {
         <label className="field">
           <span>סכום חילוץ</span>
           <input type="number" inputMode="numeric" value={f.bailoutAmount} onChange={num("bailoutAmount")} />
+        </label>
+      </div>
+      <div className="prize-fields">
+        <span className="muted">מה מקבלים בבוקר (מופיע בטלפונים ובהכרזת המנצח):</span>
+        <label className="field">
+          <span>🥇 מקום ראשון</span>
+          <input value={f.prize1} onChange={text("prize1")} maxLength={120} />
+        </label>
+        <label className="field">
+          <span>🥈 מקום שני</span>
+          <input value={f.prize2} onChange={text("prize2")} maxLength={120} />
+        </label>
+        <label className="field">
+          <span>🥉 מקום שלישי</span>
+          <input value={f.prize3} onChange={text("prize3")} maxLength={120} />
+        </label>
+        <label className="field">
+          <span>🍋 מקום אחרון</span>
+          <input value={f.prizeLast} onChange={text("prizeLast")} maxLength={120} />
         </label>
       </div>
       <label className="check">
