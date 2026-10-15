@@ -6,9 +6,10 @@ import { RodeoPhoto, useIntro } from "../rodeo";
 import { type Game, useGame, useServerNow } from "../net";
 import { prefetchLine, setMuted, sfx, silence, speak, unlockAudio } from "../sound";
 import { Avatar, Marquee, Ticker, burst } from "../ui";
-import { CatchClock, ChatLog, FxLayer, MusicDirector, MysterySpot, ShoutsLayer } from "./Live";
+import { CatchClock, ChatLog, FxLayer, MusicDirector, MysterySpot, ShoutsLayer, SoundFx } from "./Live";
+import { IdleShow } from "./Idle";
 import { BettingVibes, BigWheel, Spotlight, holdTv, spinLength, tvBusy } from "./Moments";
-import { AwardsScreen, BoardScreen, Lobby, NightScreen, QuizScreen, RevealScreen, RoundScreen, WinnerScreen } from "./Screens";
+import { AwardsScreen, BoardScreen, Lobby, NightScreen, QuizScreen, RevealScreen, RoundScreen, VoteScreen, WinnerScreen } from "./Screens";
 
 // the host screen embeds a silent copy of the TV as a preview
 const PREVIEW = new URLSearchParams(location.search).has("preview");
@@ -84,7 +85,14 @@ export function TvApp() {
               transition={{ duration: 0.45 }}
             >
               {mode === "lobby" && <Lobby view={view} />}
-              {mode === "round" && (view.pub.round?.kind === "quiz" ? <QuizScreen view={view} game={game} /> : <RoundScreen view={view} game={game} />)}
+              {mode === "round" &&
+                (view.pub.round?.kind === "quiz" ? (
+                  <QuizScreen view={view} game={game} />
+                ) : view.pub.round?.kind === "vote" ? (
+                  <VoteScreen view={view} game={game} />
+                ) : (
+                  <RoundScreen view={view} game={game} />
+                ))}
               {mode === "board" && <BoardScreen view={view} />}
               {mode === "night" && <NightScreen view={view} />}
               {mode === "missions" && <RevealScreen view={view} />}
@@ -96,7 +104,9 @@ export function TvApp() {
           <RoundExtras view={view} game={game} avoidLeft={chat} />
           {chat && <ChatLog view={view} game={game} />}
           <ShoutsLayer shouts={view.pub.shouts} players={view.pub.players} feed={view.pub.feed} bubbles={!chat} />
+          {!PREVIEW && <IdleShow view={view} game={game} />}
           <FxLayer game={game} />
+          <SoundFx game={game} />
           <CatchClock feed={view.pub.feed} game={game} compact={!chat} />
           <MusicDirector view={view} game={game} armed={armed} />
           <NewsBanner feed={view.pub.feed} players={view.pub.players} skipShots={mode === "round"} offset={game.offset} />
@@ -197,14 +207,47 @@ function RoundExtras({ view, game, avoidLeft }: { view: ClientView; game: Game; 
   const betting = live && !drawing && view.pub.tv.mode === "round" && (r!.closesAt === null || now < r!.closesAt);
   return (
     <>
-      <BettingVibes active={betting} avoidLeft={avoidLeft} />
+      <BettingVibes active={betting && r!.kind !== "vote"} avoidLeft={avoidLeft} />
       <AnimatePresence>{drawing && draw && <BigWheel key={draw.at} draw={draw} players={view.pub.players} feed={view.pub.feed} />}</AnimatePresence>
     </>
   );
 }
 
-const NEWS_TAG: Record<string, string> = { mission: "מבזק", reveal: "נחשף", caught: "נתפס!", miss: "פספוס", bailout: "חילוץ", result: "הוכרע", shot: "שוט!", broke: "פשט רגל", gift: "מתנה" };
-const BIG = new Set(["mission", "reveal", "broke"]);
+const NEWS_TAG: Record<string, string> = {
+  mission: "מבזק",
+  reveal: "נחשף",
+  caught: "נתפס!",
+  miss: "פספוס",
+  bailout: "חילוץ",
+  result: "הוכרע",
+  shot: "שוט!",
+  broke: "פשט רגל",
+  gift: "מתנה",
+  king: "מלך חדש",
+  streak: "רצף",
+  card: "קלף זהב",
+};
+const BIG = new Set(["mission", "reveal", "broke", "king", "streak", "card"]);
+
+/** How a big moment from the feed looks on the whole screen. */
+function spotFor(e: FeedEvent, people: PlayerPub[]): Parameters<typeof Spotlight>[0] {
+  const one = people.slice(0, 1);
+  const line = e.data?.line ?? e.text;
+  switch (e.kind) {
+    case "broke":
+      return { kind: "broke", title: "💸 פשט רגל!", people: one, line, sub: "אחרי שהוא מבצע, המנחה מאשר לו חילוץ מהבנק", task: e.data?.task, amount: e.data?.amount };
+    case "king":
+      return { kind: "win", title: "👑 יש מלך חדש!", people: one, line };
+    case "streak":
+      return { kind: "fast", title: `🔥 ${e.data?.streak ?? 3} ברצף!`, people: one, line, amount: e.data?.amount };
+    case "card":
+      if (e.data?.card === "drink") return { kind: "shot", title: "🃏 קלף זהב: אתה שותה!", people: one, line, task: "לשתות שוט 🥃" };
+      if (e.data?.card === "veto") return { kind: "mission", title: "🛑 וטו של החתן!", people: one, line };
+      return { kind: "win", title: "💥 החתן הכפיל!", people: one, line };
+    default:
+      return { kind: "mission", title: "🕵️ נחשף!", people: one, line, sub: "אף אחד לא תפס אותו. עדיין אפשר לנחש מה הוא עשה ולגנוב לו את השקדים 🕵️", amount: e.data?.amount };
+  }
+}
 
 /** Breaking news: a strip for small things, the whole screen for a finished mission or someone going broke. */
 function NewsBanner({ feed, players, skipShots, offset }: { feed: FeedEvent[]; players: PlayerPub[]; skipShots: boolean; offset: number }) {
@@ -249,6 +292,20 @@ function NewsBanner({ feed, players, skipShots, offset }: { feed: FeedEvent[]; p
       sfx.fanfare();
       burst("win");
     } else if (current.kind === "broke") sfx.sad();
+    else if (current.kind === "king") {
+      sfx.fanfare();
+      burst("win");
+    } else if (current.kind === "streak") {
+      sfx.whoosh();
+      sfx.win();
+    } else if (current.kind === "card") {
+      if (current.data?.card === "veto") {
+        sfx.siren();
+        sfx.boom();
+      } else if (current.data?.card === "drink") sfx.gotcha();
+      else sfx.fanfare();
+      burst("big");
+    }
     else if (current.kind === "caught") sfx.gotcha();
     else if (current.kind === "miss") sfx.lose();
     else sfx.coin();
@@ -269,16 +326,7 @@ function NewsBanner({ feed, players, skipShots, offset }: { feed: FeedEvent[]; p
   if (current && BIG.has(current.kind) && people.length)
     return (
       <AnimatePresence>
-        <Spotlight
-          key={current.id}
-          kind={current.kind === "broke" ? "broke" : "mission"}
-          title={current.kind === "broke" ? "💸 פשט רגל!" : "🕵️ נחשף!"}
-          people={people.slice(0, 1)}
-          line={current.data?.line ?? current.text}
-          sub={current.kind === "reveal" ? "אף אחד לא תפס אותו. עדיין אפשר לנחש מה הוא עשה ולגנוב לו את השקדים 🕵️" : "אחרי שהוא מבצע, המנחה מאשר לו חילוץ מהבנק"}
-          task={current.data?.task}
-          amount={current.data?.amount}
-        />
+        <Spotlight key={current.id} {...spotFor(current, people)} />
       </AnimatePresence>
     );
   return (

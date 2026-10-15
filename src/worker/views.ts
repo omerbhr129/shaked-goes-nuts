@@ -42,6 +42,8 @@ function roundPub(s: GameState, r: RoundRec, now: number): RoundPub {
     lines: r.status === "resolved" ? r.lines : {},
     task: r.status === "resolved" ? r.task : null,
     game: r.game,
+    mult: r.mult,
+    final: r.final,
     number: s.rounds.filter((x) => x.kind !== "night").indexOf(r) + 1,
     stats,
     staked,
@@ -93,7 +95,7 @@ function playerStats(s: GameState): PlayerStats[] {
         st.missionAlmonds += m.reward;
       } else if (m.status === "burned") st.timesCaught++;
     }
-    for (const r of s.rounds) if (r.kind === "quiz" && r.losers.includes(p.id)) st.shots++;
+    for (const r of s.rounds) if ((r.kind === "quiz" || r.kind === "vote") && r.losers.includes(p.id)) st.shots++;
     for (const a of s.accusations) {
       if (a.by !== p.id) continue;
       if (a.status === "right") st.catches++;
@@ -164,12 +166,14 @@ export function buildPublic(s: GameState, now: number, online: Set<ID>): PublicV
       .filter((x) => !x.hidden)
       .slice(-15)
       .map((x) => ({ id: x.id, at: x.at, by: x.anon ? null : x.author, text: x.text, photo: x.photo })),
+    doubleNext: s.doubleNext,
+    cards: s.cards,
   };
 }
 
 function buildMe(s: GameState, pid: ID): MeView {
   const bets: Record<ID, MyBet> = {};
-  for (const b of s.bets) if (b.playerId === pid) bets[b.roundId] = { optionId: b.optionId, amount: b.amount, ticket: b.ticket };
+  for (const b of s.bets) if (b.playerId === pid) bets[b.roundId] = { optionId: b.optionId, amount: b.amount, ticket: b.ticket, ...(b.double ? { double: true } : {}) };
   const mine = s.missions.filter((m) => m.assignedTo === pid);
   const latest = <T extends { at: number }>(list: T[]) => list.reduce<T | null>((a, x) => (!a || x.at > a.at ? x : a), null);
   return {

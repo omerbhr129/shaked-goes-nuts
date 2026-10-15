@@ -211,6 +211,35 @@ export const sfx = {
       noise(0.12, 0.35, 0.25, 2600, 0.4);
     }),
   boing: () => play(() => tone(170, 0, 0.4, "sine", 0.25, 720)),
+  /** a crowd clapping: lots of short random claps that swell and fade */
+  applause: () =>
+    play(() => {
+      for (let i = 0; i < 140; i++) {
+        const t = Math.random() * 2.6;
+        const swell = t < 0.4 ? t / 0.4 : t > 2 ? Math.max(0, (2.6 - t) / 0.6) : 1;
+        noise(t, 0.03 + Math.random() * 0.03, (0.18 + Math.random() * 0.22) * swell, 1400 + Math.random() * 1800, 0.9);
+      }
+    }),
+  /** the stadium air horn: three blasts */
+  horn: () =>
+    play(() => {
+      [0, 0.32, 0.64].forEach((t, i) => {
+        const d = i === 2 ? 0.9 : 0.24;
+        for (const f of [233, 294, 349]) tone(f, t, d, "sawtooth", 0.06, f * 0.985);
+      });
+    }),
+  /** a room booing: low, wobbly voices */
+  boo: () =>
+    play(() => {
+      for (const [f, t] of [
+        [147, 0],
+        [139, 0.05],
+        [156, 0.1],
+        [131, 0.15],
+      ] as const)
+        tone(f, t, 1.6, "sawtooth", 0.05, f * 0.8);
+      noise(0, 1.4, 0.06, 500, 0.5);
+    }),
   pop: () => play(() => tone(520, 0, 0.09, "sine", 0.14, 1250)),
   fanfare: () =>
     play(() => {

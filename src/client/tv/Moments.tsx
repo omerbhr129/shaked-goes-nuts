@@ -190,7 +190,7 @@ export function BigWheel({ draw, players, feed }: { draw: DrawState; players: Pl
   // who the surprise is about
   const people = (said?.players ?? []).map((id) => players.find((p) => p.id === id)).filter((p): p is PlayerPub => !!p);
   const groom = players.find((p) => p.isGroom);
-  const surpriseKind: SpotKind = draw.surprise === "king" || draw.surprise === "rain" ? "win" : draw.surprise === "sing" ? "mission" : "shot";
+  const surpriseKind: SpotKind = draw.surprise === "king" || draw.surprise === "rain" || draw.surprise === "double" ? "win" : draw.surprise === "sing" ? "mission" : "shot";
   const surprisePeople = draw.surprise === "sing" && groom ? [groom] : people;
 
   return (
@@ -236,7 +236,7 @@ export function BigWheel({ draw, players, feed }: { draw: DrawState; players: Pl
       <AnimatePresence>
         {phase !== "spin" && (
           <motion.div className="bw-result" initial={{ scale: 0.4, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} transition={{ type: "spring", stiffness: 240, damping: 14 }}>
-            <span>{draw.surprise ? "🎉 הפתעה!" : draw.kinds?.[draw.index] === "q" ? "❓ יצאה שאלה:" : "🎯 יצא אתגר:"}</span>
+            <span>{draw.surprise ? "🎉 הפתעה!" : draw.kinds?.[draw.index] === "q" ? "❓ יצאה שאלה:" : draw.kinds?.[draw.index] === "v" ? "🗳️ יצאה הצבעה:" : "🎯 יצא אתגר:"}</span>
             <b>{draw.titles[draw.index]}</b>
           </motion.div>
         )}

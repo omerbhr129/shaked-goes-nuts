@@ -2650,3 +2650,243 @@ html.is-tv body {
     animation: none;
   }
 }
+
+/* ---------- the wheel's double and the final ---------- */
+
+.mult-badge {
+  display: inline-block;
+  margin-inline-start: 16px;
+  padding: 0 16px;
+  border-radius: 12px;
+  font-family: var(--display);
+  font-size: 34px;
+  font-weight: 900;
+  line-height: 1.3;
+  vertical-align: middle;
+  color: #1c1206;
+  background: linear-gradient(180deg, var(--gold-hi), var(--gold));
+  box-shadow:
+    0 0 0 3px var(--wax),
+    0 10px 26px rgba(0, 0, 0, 0.45);
+}
+
+.tvround.final .tvround-num {
+  font-weight: 900;
+  color: var(--gold-hi);
+}
+
+.tv-final-line {
+  display: block;
+  width: fit-content;
+  margin: 0 auto 10px;
+  padding: 6px 30px;
+  border-radius: 999px;
+  font-size: 30px;
+  font-weight: 800;
+  color: #fff;
+  background: linear-gradient(90deg, #8e1b22, #b3242d);
+  box-shadow: 0 0 0 3px var(--gold);
+}
+
+/* ---------- "who's most likely to": the vote ---------- */
+
+.tvvote {
+  grid-template-rows: auto auto 1fr auto;
+}
+
+.vote-tiles {
+  min-height: 0;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  align-content: center;
+  gap: 22px 26px;
+  padding: 0 30px;
+}
+
+.vote-tile {
+  position: relative;
+  display: grid;
+  justify-items: center;
+  align-content: start;
+  gap: 8px;
+  padding: 18px 14px 16px;
+  border-radius: 26px;
+  background: linear-gradient(180deg, rgba(17, 82, 60, 0.96), rgba(9, 48, 35, 0.96));
+  box-shadow:
+    inset 0 0 0 2px var(--line),
+    0 18px 40px rgba(0, 0, 0, 0.4);
+  transition:
+    opacity 0.4s,
+    filter 0.4s;
+}
+
+.vote-tile.dim {
+  opacity: 0.55;
+  filter: saturate(0.6);
+}
+
+.vote-tile.chosen {
+  background: linear-gradient(180deg, #b3242d, #6e1016);
+  box-shadow:
+    0 0 0 5px var(--gold),
+    0 0 60px rgba(233, 185, 73, 0.55),
+    0 18px 40px rgba(0, 0, 0, 0.5);
+}
+
+.vote-tile-name {
+  font-family: var(--display);
+  font-size: 36px;
+  font-weight: 800;
+  line-height: 1.1;
+}
+
+.vote-tile-n {
+  position: absolute;
+  top: 10px;
+  inset-inline-start: 16px;
+  font-family: var(--led);
+  font-size: 58px;
+  line-height: 1;
+  color: var(--gold-hi);
+}
+
+.vote-tile-bar {
+  width: 100%;
+  height: 10px;
+  overflow: hidden;
+  border-radius: 99px;
+  background: rgba(0, 0, 0, 0.35);
+}
+
+.vote-tile-bar i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--gold), var(--gold-hi));
+  transform-origin: right center;
+}
+
+.vote-tile-who {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 4px;
+}
+
+/* ---------- the host's soundboard, big on the screen for a moment ---------- */
+
+.sb-show {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  z-index: 58;
+  display: grid;
+  justify-items: center;
+  gap: 6px;
+  translate: -50% -50%;
+  padding: 26px 60px 30px;
+  border-radius: 40px;
+  text-align: center;
+  pointer-events: none;
+  background: linear-gradient(160deg, rgba(179, 36, 45, 0.95), rgba(110, 16, 22, 0.95));
+  box-shadow:
+    0 0 0 6px var(--gold),
+    0 30px 80px rgba(0, 0, 0, 0.6);
+}
+
+.sb-show span {
+  font-size: 150px;
+  line-height: 1;
+}
+
+.sb-show b {
+  font-family: var(--display);
+  font-size: 84px;
+  font-weight: 900;
+  color: var(--gold-hi);
+  text-shadow: 0 6px 0 rgba(0, 0, 0, 0.35);
+}
+
+/* ---------- nothing happening: a slideshow of the night ---------- */
+
+.idle-show {
+  position: absolute;
+  inset: 0 0 62px;
+  z-index: 43;
+  overflow: hidden;
+  background: #04170f;
+}
+
+.idle-slide {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  display: grid;
+  place-items: center;
+}
+
+.idle-blur {
+  position: absolute;
+  inset: -40px;
+  width: calc(100% + 80px);
+  height: calc(100% + 80px);
+  object-fit: cover;
+  filter: blur(40px) brightness(0.45) saturate(1.2);
+}
+
+.idle-img {
+  position: relative;
+  max-width: 1400px;
+  max-height: 740px;
+  border: 12px solid #fff8e6;
+  border-radius: 22px;
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.6);
+  rotate: -1.5deg;
+  animation: idle-zoom 7s ease-out both;
+}
+
+@keyframes idle-zoom {
+  from {
+    scale: 1;
+  }
+  to {
+    scale: 1.06;
+  }
+}
+
+.idle-slide figcaption {
+  position: absolute;
+  bottom: 40px;
+  left: 50%;
+  translate: -50% 0;
+  max-width: 80%;
+  padding: 12px 36px;
+  border-radius: 999px;
+  font-family: var(--display);
+  font-size: 44px;
+  font-weight: 800;
+  text-align: center;
+  color: var(--gold-hi);
+  background: rgba(4, 23, 15, 0.82);
+  box-shadow: 0 0 0 3px var(--gold);
+}
+
+.idle-tag {
+  position: absolute;
+  top: 26px;
+  inset-inline-end: 34px;
+  padding: 8px 24px;
+  border-radius: 999px;
+  font-size: 26px;
+  font-weight: 700;
+  color: var(--almond);
+  background: rgba(4, 23, 15, 0.75);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .idle-img,
+  .catch-clock.hurry,
+  .cc-siren {
+    animation: none;
+  }
+}

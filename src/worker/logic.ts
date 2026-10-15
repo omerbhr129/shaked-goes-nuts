@@ -1,4 +1,4 @@
-import type { Audience, FeedEvent, FeedKind, GameState, Shout, ID, Mission, PlayerRec, RoundKind, RoundOption, RoundRec, TargetSlot, TvMode, WheelKind } from "../shared/types";
+import type { Audience, FeedEvent, FeedKind, GameState, GroomCard, Shout, ID, Mission, PlayerRec, RoundKind, RoundOption, RoundRec, TargetSlot, TvMode, WheelKind } from "../shared/types";
 import { GAMES, SHOP } from "../shared/catalog";
 import { DEFAULT_SETTINGS, seedState } from "./seed";
 
@@ -78,6 +78,10 @@ export function normalize(s: GameState): GameState {
   s.lastResolvedId ??= null;
   s.draw ??= null;
   s.shouts ??= [];
+  s.doubleNext ??= false;
+  s.king ??= null;
+  s.kingAt ??= 0;
+  s.cards = Object.assign({ veto: false, double: false, drink: false }, s.cards);
   for (const p of s.players) {
     p.hat ??= null;
     p.item ??= null;
@@ -95,6 +99,8 @@ export function normalize(s: GameState): GameState {
     r.lines ??= {};
     r.task ??= null;
     r.game ??= null;
+    r.mult ??= 1;
+    r.final ??= false;
   }
   for (const m of s.missions) {
     m.caughtBy ??= null;
@@ -105,7 +111,22 @@ export function normalize(s: GameState): GameState {
 }
 
 function resetRound(r: RoundRec) {
-  Object.assign(r, { status: "draft", openedAt: null, closesAt: null, winnerId: null, resolvedAt: null, refunded: false, losers: [], loserReason: null, lines: {}, task: null });
+  Object.assign(r, { status: "draft", openedAt: null, closesAt: null, winnerId: null, resolvedAt: null, refunded: false, losers: [], loserReason: null, lines: {}, task: null, mult: 1, final: false });
+}
+
+/** What winnings are multiplied by: the wheel's double, and the final doubles again. */
+const payMult = (r: RoundRec) => (r.mult || 1) * (r.final ? 2 : 1);
+
+/** A round going live picks up a waiting "next round is double", and can be the final. */
+function armRound(s: GameState, r: RoundRec, final = false) {
+  r.mult = s.doubleNext ? 2 : 1;
+  s.doubleNext = false;
+  r.final = final && r.kind === "challenge";
+}
+
+/** A round taken off the table hands its double on to the next one. */
+function disarmRound(s: GameState, r: RoundRec) {
+  if (r.mult > 1) s.doubleNext = true;
 }
 
 /* ---------- the funny bits: unfiltered lines for the TV and the announcer ---------- */
@@ -163,6 +184,22 @@ const LINES = {
   broke: ["{n} פשט רגל, יא זונות! אמא שלו כבר מתקשרת לבנק", "{n} שרף את כל השקדים. הבנק המרכזי בהלם", "{n} נשאר עם כיס ריק ולב שבור, כפרה עליו", "{n} רשמית מרושש. מישהו יקנה לזונה הזאת שקד?"],
   gift: ["איזה חבר", "וואלה, נדיב", "יא זונה רומנטית", "כפרה עליך"],
   selfGift: ["אין כמו לפנק את עצמך", "יא נרקיסיסט", "וואלה, מגיע לך"],
+  // the lead changed hands: {n} the new king, {o} the old one
+  king: [
+    "יש מלך חדש, יא זונות! {n} עקף את {o}. כולם להשתחוות",
+    "וואלה! {n} גנב את הכתר מ{o}. {o}, תחזיר את הכתר ותתבייש",
+    "{n} המלך החדש של הבורסה! {o}, הממלכה שלך נפלה, כפרה",
+    "אחושרמוטה, הפיכה בבורסה! {n} על הכס, ו{o} למטבח",
+  ],
+  kingFirst: ["יש לנו מלך! {n} מוביל את הבורסה. תשתחוו, יא שרמוטות", "{n} פותח פער ותופס את הכתר. כולם לרצפה, יא זונות"],
+  // {k} right in a row
+  streak: ["{n} על רצף! {k} ברצף, הבחור הזה רואה את העתיד", "וואלה {n} בוער! {k} ברצף, שמישהו יעצור אותו", "{n}: {k} ברצף. הבנק מתחיל להזיע, יא זונות"],
+  voted1: ["{n}! הדמוקרטיה דיברה, יא זונות. שוט!", "וואלה, כולם חושבים שזה {n}. תשתה ותשתוק", "{n} נבחר בכבוד. כוס למעלה, יא שרמוטה"],
+  votedN: ["תיקו! {n} שותים ביחד, יא זונות", "{n}: הדמוקרטיה דיברה. שוט לכולכם"],
+  noVotes: ["אף אחד לא הצביע, חבורת עצלנים. כולם שותים!", "אפס קולות. אפס! יא זונות, כולם שותים"],
+  veto: ["החתן הטיל וטו, יא זונות! האתגר מבוטל וכל השקדים חוזרים", "וטו של החתן! איתי אמר לא, וזהו. מי שלא מרוצה, שיתחתן בעצמו"],
+  doubled: ["החתן הכפיל את ההימור! אם איתי צודק, הוא לוקח כפול, יא זונות", "קלף זהב! איתי הכפיל. או שהוא גאון, או שהוא שיכור"],
+  drink: ["קלף זהב! החתן החליט: {n} שותה עכשיו, יא שרמוטה. בלי ויכוחים", "איתי שלף קלף זהב: {n}, למטה! שוט מול כולם"],
 };
 
 const andList = (names: string[]) => (names.length > 1 ? `${names.slice(0, -1).join(", ")} ו${names[names.length - 1]}` : (names[0] ?? ""));
@@ -174,6 +211,7 @@ const POOL_TASK = "🌊 קפיצה לבריכה עם הבגדים!";
 const LATE_TASKS = [POOL_TASK, "🌊 עמידה מתחת למפל של הבריכה, 10 שניות", "שוט כפול 🥃🥃", "20 שכיבות סמיכה עם מישהו על הגב"];
 const LATE_AFTER = 8;
 const BROKE_AT = 100;
+const SWAP_PRICE = 50;
 const BROKE_TASKS = ["20 שכיבות סמיכה", "שוט לבחירת החתן", "לשיר לאיתי שיר אהבה מול כולם", "ריקוד סולו של 20 שניות על הדשא", "נאום תודה של 30 שניות לבנק המרכזי (איתי)", "לגימה ענקית מול כולם"];
 /** the wheel spins, lands, and shows what came up before betting opens */
 const DRAW_MS = 8000;
@@ -186,6 +224,7 @@ const SURPRISES: { id: string; label: string; line: string }[] = [
   { id: "bitter", label: "🍋 השקד המר שותה כפול", line: "{last}, השקד המר, שוט כפול. כפרה עליך" },
   { id: "rain", label: "💸 גשם של שקדים: 50 לכל אחד", line: "הבנק השתגע! 50 שקדים לכל אחד, יא עשירים" },
   { id: "sing", label: "🎤 כולם שרים לאיתי", line: "כולם שרים לאיתי שיר אהבה, עכשיו, בלי תירוצים, יא זונות" },
+  { id: "double", label: "💥 הסיבוב הבא כפול!", line: "וואלה! הסיבוב הבא כפול, יא זונות. מי שצודק לוקח פי 2" },
 ];
 
 export const isLate = (s: GameState) => s.rounds.filter((r) => r.kind !== "night" && r.status === "resolved").length >= LATE_AFTER;
@@ -254,6 +293,82 @@ function quizLines(s: GameState, r: RoundRec) {
   r.lines = lines;
 }
 
+/** Votes per option. */
+function tally(s: GameState, r: RoundRec) {
+  const votes = s.bets.filter((b) => b.roundId === r.id);
+  const count = new Map<ID, number>();
+  for (const v of votes) count.set(v.optionId, (count.get(v.optionId) ?? 0) + 1);
+  return { votes, count, top: Math.max(0, ...count.values()) };
+}
+
+/** A vote is settled: the most votes drinks (everyone tied at the top), and whoever voted with the majority earns the reward. */
+function settleVote(s: GameState, r: RoundRec, win: RoundOption, now: number) {
+  s.ledger = s.ledger.filter((e) => !(e.kind === "vote" && e.ref === r.id));
+  const { votes, count, top } = tally(s, r);
+  // the host can name someone else; otherwise every option tied at the top is chosen
+  const chosen = top > 0 && (count.get(win.id) ?? 0) === top ? r.options.filter((o) => (count.get(o.id) ?? 0) === top) : [win];
+  const ids = new Set(chosen.map((o) => o.id));
+  const pay = r.reward * payMult(r);
+  const right = votes.filter((v) => ids.has(v.optionId)).map((v) => v.playerId);
+  if (pay) for (const pid of right) s.ledger.push({ id: newId(), playerId: pid, delta: pay, kind: "vote", ref: r.id, note: "הצביע כמו הרוב", at: now });
+  r.losers = chosen.map((o) => o.playerId).filter((x): x is ID => !!x);
+  r.loserReason = "voted";
+  r.refunded = false;
+  r.lines = { voted: fill(r.losers.length > 1 ? LINES.votedN : LINES.voted1, andList(r.losers.map((id) => nameOf(s, id)))) };
+  if (right.length) r.lines.majority = `הצביעו כמו הרוב: ${andList(right.map((id) => nameOf(s, id)))}`;
+}
+
+/** A vote closes when time is up or everyone voted, and settles itself. Nobody voted? Everybody drinks. */
+export function closeVote(s: GameState, r: RoundRec, now: number) {
+  r.status = "closed";
+  r.closesAt = Math.min(r.closesAt ?? now, now);
+  const { count, top } = tally(s, r);
+  const win = top > 0 ? r.options.find((o) => count.get(o.id) === top) : undefined;
+  if (win) return resolveWith(s, r, win, now);
+  r.losers = s.players.filter((p) => p.token && !r.noBet.includes(p.id)).map((p) => p.id);
+  Object.assign(r, { status: "resolved", winnerId: null, resolvedAt: now, refunded: true, loserReason: "voted", lines: { voted: sample(LINES.noVotes) } });
+  s.lastResolvedId = r.id;
+  if (s.activeRoundId === r.id) s.tv = { mode: "round", at: now, step: 0 };
+  if (r.losers.length) pushFeed(s, now, "shot", `🥃 ${r.lines.voted}`, r.losers, r.id);
+}
+
+/** Right calls in a row on challenges and questions, newest first. Rounds you sat out don't break it. */
+function winsInARow(s: GameState, pid: ID) {
+  const played = s.rounds
+    .filter((x) => (x.kind === "challenge" || x.kind === "quiz") && x.status === "resolved" && !x.refunded && s.bets.some((b) => b.roundId === x.id && b.playerId === pid))
+    .sort((a, b) => (b.resolvedAt ?? 0) - (a.resolvedAt ?? 0));
+  let n = 0;
+  for (const x of played) {
+    if (!s.ledger.some((e) => e.playerId === pid && e.ref === x.id && ((e.kind === "bet" && e.delta > 0) || e.kind === "quiz"))) break;
+    n++;
+  }
+  return n;
+}
+
+/** Three right in a row (then five, seven...) gets the TV and a bonus from the bank. */
+function streaks(s: GameState, r: RoundRec, now: number) {
+  for (const pid of new Set(s.bets.filter((b) => b.roundId === r.id).map((b) => b.playerId))) {
+    const k = winsInARow(s, pid);
+    if (k < 3 || k % 2 === 0) continue;
+    const bonus = 50 * (k - 1);
+    s.ledger.push({ id: newId(), playerId: pid, delta: bonus, kind: "streak", ref: r.id, note: `🔥 ${k} ברצף`, at: now });
+    const line = sample(LINES.streak).replaceAll("{n}", nameOf(s, pid)).replaceAll("{k}", String(k));
+    pushFeed(s, now, "streak", `🔥 ${line}. בונוס מהבנק: +${fmt(bonus)}`, [pid], r.id, { line, amount: bonus, streak: k });
+  }
+}
+
+/** The lead changed hands: the TV crowns the new king. Not on a tie, not at the starting line, at most every 20 seconds. */
+function watchKing(s: GameState, now: number) {
+  const st = standings(s).filter((p) => s.players.some((x) => x.id === p.id && x.token));
+  if (st.length < 2 || st[0].balance === st[1].balance || st[0].id === s.king) return;
+  if (st[0].balance <= s.settings.startBalance || now - s.kingAt < 20_000) return;
+  const old = s.king && s.players.some((x) => x.id === s.king) ? s.king : null;
+  s.king = st[0].id;
+  s.kingAt = now;
+  const line = old ? sample(LINES.king).replaceAll("{n}", st[0].name).replaceAll("{o}", nameOf(s, old)) : fill(LINES.kingFirst, st[0].name);
+  pushFeed(s, now, "king", `👑 ${line}`, [st[0].id], null, { line });
+}
+
 /** A mission survived its catch window: the holder is named, and whoever he played pays him. */
 function payMission(s: GameState, m: Mission, now: number) {
   const holder = m.assignedTo;
@@ -298,6 +413,7 @@ export function tick(s: GameState, now: number): boolean {
   const r = activeRound(s);
   if (r && r.status === "open" && r.closesAt && now >= r.closesAt - 30) {
     if (r.kind === "quiz") closeQuiz(s, r, now);
+    else if (r.kind === "vote") closeVote(s, r, now);
     else r.status = "closed";
     changed = true;
   }
@@ -305,7 +421,10 @@ export function tick(s: GameState, now: number): boolean {
     payMission(s, m, now);
     changed = true;
   }
-  if (changed) watchBroke(s, before, now);
+  if (changed) {
+    watchBroke(s, before, now);
+    watchKing(s, now);
+  }
   return changed;
 }
 
@@ -456,8 +575,10 @@ function settle(s: GameState, r: RoundRec, winId: ID, now: number) {
   r.refunded = bets.length > 0 && winners.length === 0;
   if (!bets.length || r.refunded) return;
   const pot = bets.reduce((a, b) => a + b.amount, 0) + r.bonus;
+  const m = payMult(r);
   for (const b of bets) {
-    const delta = b.optionId === winId ? Math.floor((b.amount * pot) / W) - b.amount : -b.amount;
+    // the double and the final multiply the profit; the groom's card doubles his again
+    const delta = b.optionId === winId ? (Math.floor((b.amount * pot) / W) - b.amount) * m * (b.double ? 2 : 1) : -b.amount;
     s.ledger.push({ id: newId(), playerId: b.playerId, delta, kind: "bet", ref: r.id, note: r.title, at: now });
   }
 }
@@ -469,7 +590,7 @@ function settleQuiz(s: GameState, r: RoundRec, rightId: ID, now: number) {
   const answers = s.bets.filter((b) => b.roundId === r.id).sort((a, b) => a.at - b.at);
   const right = answers.filter((a) => a.optionId === rightId);
   right.forEach((a, i) => {
-    const delta = r.reward + (i === 0 ? r.bonus : 0);
+    const delta = (r.reward + (i === 0 ? r.bonus : 0)) * payMult(r);
     if (delta) s.ledger.push({ id: newId(), playerId: a.playerId, delta, kind: "quiz", ref: r.id, note: i === 0 ? "הכי מהיר לתשובה הנכונה" : "תשובה נכונה", at: now });
   });
   const rightIds = new Set(right.map((a) => a.playerId));
@@ -486,18 +607,21 @@ function settleQuiz(s: GameState, r: RoundRec, rightId: ID, now: number) {
 /** Settle a round with its winning option and put the result on the TV. */
 function resolveWith(s: GameState, r: RoundRec, win: RoundOption, now: number) {
   if (r.status === "open") r.closesAt = Math.min(r.closesAt ?? now, now);
-  s.feed = s.feed.filter((e) => !(e.ref === r.id && (e.kind === "shot" || e.kind === "result")));
+  s.feed = s.feed.filter((e) => !(e.ref === r.id && (e.kind === "shot" || e.kind === "result" || e.kind === "streak")));
+  s.ledger = s.ledger.filter((e) => !(e.kind === "streak" && e.ref === r.id));
   if (r.kind === "quiz") {
     settleQuiz(s, r, win.id, now);
     quizLines(s, r);
-  } else {
+  } else if (r.kind === "vote") settleVote(s, r, win, now);
+  else {
     settle(s, r, win.id, now);
     if (r.kind === "challenge") verdict(s, r, win.id);
   }
   Object.assign(r, { status: "resolved", winnerId: win.id, resolvedAt: now });
   s.lastResolvedId = r.id;
   if (r.kind !== "night" && s.activeRoundId === r.id) s.tv = { mode: "round", at: now, step: 0 };
-  if (r.kind === "quiz" && r.losers.length) pushFeed(s, now, "shot", `🥃 ${r.lines.shot ?? r.lines.slow ?? "שוט!"}`, r.losers, r.id);
+  if ((r.kind === "quiz" || r.kind === "vote") && r.losers.length) pushFeed(s, now, "shot", `🥃 ${r.lines.shot ?? r.lines.slow ?? r.lines.voted ?? "שוט!"}`, r.losers, r.id);
+  if (r.kind === "challenge" || r.kind === "quiz") streaks(s, r, now);
   if (r.kind === "night") {
     const winners = s.bets.filter((b) => b.roundId === r.id && b.optionId === win.id).map((b) => b.playerId);
     pushFeed(s, now, "result", `🌙 הוכרע: ${r.title} — ״${win.label}״`, winners, r.id);
@@ -614,7 +738,8 @@ const PLAYER: Record<string, Handler> = {
     if (!bettingOpen(r, c.now)) fail(r.kind === "quiz" ? "הזמן לענות נגמר" : "ההימורים כבר נסגרו");
     if (r.noBet.includes(pl.id)) fail(r.kind === "quiz" ? "על השאלה הזאת אתה לא עונה 😉" : "משתתפי האתגר לא מהמרים בסיבוב הזה");
     const opt = r.options.find((o) => o.id === c.p.optionId) ?? fail("האפשרות הזאת לא קיימת");
-    if (r.kind === "quiz") {
+    if (r.kind === "quiz" || r.kind === "vote") {
+      if (r.kind === "vote" && opt.playerId === pl.id) fail("להצביע לעצמך? יפה, אבל לא 😉");
       const prev = s.bets.find((b) => b.roundId === r.id && b.playerId === pl.id);
       let ticket: number;
       if (prev) {
@@ -626,10 +751,11 @@ const PLAYER: Record<string, Handler> = {
         s.bets.push({ roundId: r.id, playerId: pl.id, optionId: opt.id, amount: 0, at: c.now, ticket });
       }
       const answered = new Set(s.bets.filter((b) => b.roundId === r.id).map((b) => b.playerId));
-      if (s.players.every((x) => !x.token || r.noBet.includes(x.id) || answered.has(x.id))) closeQuiz(s, r, c.now);
+      if (s.players.every((x) => !x.token || r.noBet.includes(x.id) || answered.has(x.id))) (r.kind === "quiz" ? closeQuiz : closeVote)(s, r, c.now);
       return { ticket };
     }
-    let max = Math.min(r.maxBet, available(s, pl.id, r.id));
+    // the final: everything you have can go on the table
+    let max = r.final ? available(s, pl.id, r.id) : Math.min(r.maxBet, available(s, pl.id, r.id));
     let room = Infinity;
     if (r.kind === "night" && s.settings.nightCap > 0) {
       room = s.settings.nightCap - nightStaked(s, pl.id, r.id);
@@ -684,6 +810,56 @@ const PLAYER: Record<string, Handler> = {
     m.status = "open";
     m.doneAt = null;
     m.claimedAt = null;
+  },
+
+  /** Stuck with a mission that can't work? Swap it for another one from the pool, for a price. */
+  swapMyMission(s, c) {
+    const pl = me(s, c);
+    const m = findMission(s, c.p.missionId);
+    if (m.assignedTo !== pl.id) fail("המשימה הזאת לא שלך");
+    if (m.status !== "open") fail("אפשר להחליף רק משימה שעוד לא סימנת");
+    if (available(s, pl.id) < SWAP_PRICE) fail(`החלפה עולה ${SWAP_PRICE} שקדים, ואין לך מספיק פנויים`);
+    const free = s.missions.filter((x) => x.assignedTo === null && x.status === "open" && x.id !== m.id && fits(s, x, pl));
+    if (!free.length) fail("אין משימות פנויות במאגר להחלפה");
+    const same = free.filter((x) => x.reward === m.reward);
+    const pick = sample(same.length ? same : free);
+    resetMission(m);
+    if (!giveMission(s, pick, pl)) fail("לא הצלחנו להחליף. נסו שוב");
+    s.ledger.push({ id: newId(), playerId: pl.id, delta: -SWAP_PRICE, kind: "swap", ref: pick.id, note: "🔄 החלפת משימה", at: c.now });
+    return { id: pick.id };
+  },
+
+  /** The groom's golden cards: each one works once a night, and the TV makes a scene of it. */
+  groomCard(s, c) {
+    const pl = me(s, c);
+    if (!pl.isGroom) fail("קלפי זהב יש רק לחתן 🃏");
+    const card = String(c.p.card) as GroomCard;
+    if (!(card in s.cards)) fail("הקלף הזה לא קיים");
+    if (s.cards[card]) fail("כבר שלפת את הקלף הזה הלילה");
+    const r = activeRound(s);
+    if (card === "veto") {
+      if (!r || r.kind !== "challenge" || (r.status !== "open" && r.status !== "closed")) fail("וטו מטילים על אתגר שפתוח עכשיו");
+      s.bets = s.bets.filter((b) => b.roundId !== r.id);
+      disarmRound(s, r);
+      resetRound(r);
+      s.activeRoundId = null;
+      if (s.draw?.roundId === r.id) s.draw = null;
+      s.tv = { mode: "board", at: c.now, step: 0 };
+      const line = sample(LINES.veto);
+      pushFeed(s, c.now, "card", `🛑 ${line}`, [pl.id], r.id, { line, card });
+    } else if (card === "double") {
+      if (!r || r.kind !== "challenge" || !bettingOpen(r, c.now)) fail("מכפילים הימור על אתגר שפתוח עכשיו להימורים");
+      const b = s.bets.find((x) => x.roundId === r.id && x.playerId === pl.id) ?? fail("קודם מהמרים, ואז מכפילים");
+      b.double = true;
+      const line = sample(LINES.doubled);
+      pushFeed(s, c.now, "card", `💥 ${line}`, [pl.id], r.id, { line, card });
+    } else {
+      const t = findPlayer(s, c.p.target);
+      if (t.id === pl.id) fail("בחר מישהו אחר 😉");
+      const line = fill(LINES.drink, t.name);
+      pushFeed(s, c.now, "card", `🥃 ${line}`, [t.id], null, { line, card });
+    }
+    s.cards[card] = true;
   },
 
   extraMission(s, c) {
@@ -761,7 +937,7 @@ const ADMIN: Record<string, Handler> = {
       return { id: existing.id };
     }
     const seen = new Set<string>();
-    const options: RoundOption[] = (Array.isArray(d.options) ? d.options : [])
+    let options: RoundOption[] = (Array.isArray(d.options) ? d.options : [])
       .map((o: any) => {
         const playerId = o?.playerId && s.players.some((x) => x.id === o.playerId) ? String(o.playerId) : null;
         const label = str(o?.label, 40) || (playerId ? s.players.find((x) => x.id === playerId)!.name : "");
@@ -771,14 +947,16 @@ const ADMIN: Record<string, Handler> = {
         return { id, label, playerId };
       })
       .filter((o) => o.label);
+    const kind: RoundKind = d.kind === "night" || d.kind === "quiz" || d.kind === "vote" ? d.kind : "challenge";
+    // a vote is always about everybody
+    if (kind === "vote") options = s.players.map((x) => ({ id: x.id, label: x.name, playerId: x.id }));
     if (options.length < 2) fail("צריך לפחות 2 אפשרויות");
     if (options.length > 10) fail("אפשר עד 10 אפשרויות");
-    const kind: RoundKind = d.kind === "night" || d.kind === "quiz" ? d.kind : "challenge";
     const minBet = int(d.minBet, 50, 1, 1_000_000);
     const maxBet = int(d.maxBet, 500, minBet, 1_000_000);
-    const seconds = kind === "night" ? 0 : int(d.seconds, kind === "quiz" ? 25 : 60, 0, 900);
-    const bonus = int(d.bonus, kind === "quiz" ? 50 : s.settings.bankBonus, 0, 1_000_000);
-    const reward = kind === "quiz" ? int(d.reward, 100, 0, 1_000_000) : 0;
+    const seconds = kind === "night" ? 0 : int(d.seconds, kind === "quiz" ? 25 : kind === "vote" ? 40 : 60, 0, 900);
+    const bonus = kind === "vote" ? 0 : int(d.bonus, kind === "quiz" ? 50 : s.settings.bankBonus, 0, 1_000_000);
+    const reward = kind === "quiz" || kind === "vote" ? int(d.reward, 100, 0, 1_000_000) : 0;
     const rawCi = (p.round ?? {}).correctIndex;
     const ci = rawCi === null || rawCi === undefined || rawCi === "" ? NaN : Number(rawCi);
     const correctId = kind === "quiz" && Number.isInteger(ci) && options[ci] ? options[ci].id : null;
@@ -810,6 +988,8 @@ const ADMIN: Record<string, Handler> = {
       lines: {},
       task: null,
       game: null,
+      mult: 1,
+      final: false,
     };
     s.rounds.push(r);
     return { id: r.id };
@@ -852,6 +1032,7 @@ const ADMIN: Record<string, Handler> = {
     if (r.status === "draft") {
       s.bets = s.bets.filter((b) => b.roundId !== r.id);
       r.openedAt = now;
+      armRound(s, r, !!p.final);
     }
     Object.assign(r, { status: "open", closesAt: seconds > 0 ? now + seconds * 1000 : null, winnerId: null, resolvedAt: null, refunded: false, losers: [], loserReason: null, lines: {}, task: null });
     s.activeRoundId = r.id;
@@ -860,24 +1041,27 @@ const ADMIN: Record<string, Handler> = {
 
   /** The host decides when, the pool decides what: a random challenge or quiz, opened after the TV's reel spins. */
   drawRound(s, { p, now }) {
-    const mix = p.kind === "any";
-    const kind: RoundKind = p.kind === "quiz" ? "quiz" : "challenge";
+    // the final only lands on a challenge
+    const final = !!p.final;
+    const mix = p.kind === "any" && !final;
+    const kind: RoundKind = final ? "challenge" : p.kind === "quiz" ? "quiz" : p.kind === "vote" ? "vote" : "challenge";
     const cur = activeRound(s);
     let skip: ID | null = null;
     if (cur && (cur.status === "open" || cur.status === "closed")) {
       if (!p.redraw) fail(`הסיבוב ״${cur.title}״ עדיין פעיל. קודם הכריזו תוצאה או בטלו אותו`);
       if (s.bets.some((b) => b.roundId === cur.id)) fail("כבר יש הימורים על הסיבוב הזה. בטלו אותו קודם");
+      disarmRound(s, cur);
       resetRound(cur);
       skip = cur.id;
     }
     const pool = s.rounds.filter((r) => (mix ? r.kind !== "night" : r.kind === kind) && r.status === "draft" && r.id !== skip);
     const forced = SURPRISES.find((x) => x.id === p.pick);
-    if (!pool.length && !mix) fail(kind === "quiz" ? "נגמרו שאלות הידע במאגר" : "נגמרו האתגרים במאגר");
+    if (!pool.length && !mix) fail(kind === "quiz" ? "נגמרו שאלות הידע במאגר" : kind === "vote" ? "נגמרו ההצבעות במאגר" : "נגמרו האתגרים במאגר");
     // the mixed wheel lands on a surprise now and then (always when the pool is empty)
     const surprise = mix ? (forced ?? (!pool.length || Math.random() < 0.2 ? sample(SURPRISES) : undefined)) : undefined;
     const r = surprise ? undefined : sample(pool);
     type Seg = { t: string; k: string };
-    const ofRound = (x: RoundRec): Seg => ({ t: `${x.emoji} ${x.title}`, k: x.kind === "quiz" ? "q" : "c" });
+    const ofRound = (x: RoundRec): Seg => ({ t: `${x.emoji} ${x.title}`, k: x.kind === "quiz" ? "q" : x.kind === "vote" ? "v" : "c" });
     const ofSurprise = (x: (typeof SURPRISES)[number]): Seg => ({ t: x.label, k: "s" });
     const chosen = surprise ? ofSurprise(surprise) : ofRound(r!);
     // a few surprises always show on the mixed wheel, so it looks like anything can happen
@@ -897,6 +1081,7 @@ const ADMIN: Record<string, Handler> = {
     if (surprise) {
       const st = standings(s);
       const line = surprise.line.replaceAll("{king}", st[0]?.name ?? "המלך").replaceAll("{last}", st[st.length - 1]?.name ?? "השקד המר");
+      if (surprise.id === "double") s.doubleNext = true;
       if (surprise.id === "rain")
         for (const pl of s.players.filter((x) => x.token))
           s.ledger.push({ id: newId(), playerId: pl.id, delta: 50, kind: "adjust", ref: null, note: "גשם של שקדים מגלגל הבלגן", at: now });
@@ -908,8 +1093,9 @@ const ADMIN: Record<string, Handler> = {
     s.bets = s.bets.filter((b) => b.roundId !== r!.id);
     const start = now + DRAW_MS;
     Object.assign(r!, { status: "open", openedAt: start, closesAt: r!.seconds > 0 ? start + r!.seconds * 1000 : null, winnerId: null, resolvedAt: null, refunded: false, losers: [], loserReason: null, lines: {}, task: null });
+    armRound(s, r!, final);
     s.activeRoundId = r!.id;
-    return { id: r!.id, title: r!.title };
+    return { id: r!.id, title: r!.title, final: r!.final, mult: r!.mult };
   },
 
   hideShout(s, { p }) {
@@ -956,7 +1142,10 @@ const ADMIN: Record<string, Handler> = {
       lines: {},
       task: null,
       game: key,
+      mult: 1,
+      final: false,
     };
+    armRound(s, r, !!p.final);
     const firstNight = s.rounds.findIndex((x) => x.kind === "night");
     s.rounds.splice(firstNight < 0 ? s.rounds.length : firstNight, 0, r);
     s.activeRoundId = r.id;
@@ -990,6 +1179,7 @@ const ADMIN: Record<string, Handler> = {
     const r = findRound(s, p.roundId);
     if (r.status !== "open") fail("ההימורים כבר סגורים");
     if (r.kind === "quiz") return void closeQuiz(s, r, now);
+    if (r.kind === "vote") return void closeVote(s, r, now);
     r.status = "closed";
     r.closesAt = Math.min(r.closesAt ?? now, now);
   },
@@ -1011,14 +1201,16 @@ const ADMIN: Record<string, Handler> = {
       s.activeRoundId = r.id;
       s.tv = { mode: "round", at: now, step: 0 };
     }
-    s.ledger = s.ledger.filter((e) => !((e.kind === "bet" || e.kind === "quiz") && e.ref === r.id));
+    s.ledger = s.ledger.filter((e) => !((e.kind === "bet" || e.kind === "quiz" || e.kind === "vote" || e.kind === "streak") && e.ref === r.id));
+    s.feed = s.feed.filter((e) => !(e.ref === r.id && (e.kind === "shot" || e.kind === "streak")));
     Object.assign(r, { status: "closed", winnerId: null, resolvedAt: null, refunded: false, losers: [], loserReason: null, lines: {}, task: null });
   },
 
   cancelRound(s, { p, now }) {
     const r = findRound(s, p.roundId);
-    s.ledger = s.ledger.filter((e) => !((e.kind === "bet" || e.kind === "quiz") && e.ref === r.id));
+    s.ledger = s.ledger.filter((e) => !((e.kind === "bet" || e.kind === "quiz" || e.kind === "vote" || e.kind === "streak") && e.ref === r.id));
     s.bets = s.bets.filter((b) => b.roundId !== r.id);
+    disarmRound(s, r);
     resetRound(r);
     if (s.lastResolvedId === r.id) s.lastResolvedId = null;
     if (s.activeRoundId === r.id) {
@@ -1243,6 +1435,7 @@ const ADMIN: Record<string, Handler> = {
 
   resetGame(s, { p, now }) {
     Object.assign(s, { bets: [], ledger: [], accusations: [], bailouts: [], feed: [], shouts: [], wheel: null, draw: null, seq: 0, activeRoundId: null, lastResolvedId: null });
+    Object.assign(s, { doubleNext: false, king: null, kingAt: 0, cards: { veto: false, double: false, drink: false } });
     for (const pl of s.players) Object.assign(pl, { hat: null, item: null });
     s.rounds = s.rounds.filter((r) => !r.id.startsWith("duel-"));
     for (const r of s.rounds)
@@ -1270,7 +1463,10 @@ const ADMIN: Record<string, Handler> = {
 export function dispatch(s: GameState, c: Ctx): unknown {
   const before = new Map(s.players.filter((p) => p.token).map((p) => [p.id, balanceOf(s, p.id)]));
   const out = route(s, c);
-  if (c.a !== "reseed" && c.a !== "resetGame") watchBroke(s, before, c.now);
+  if (c.a !== "reseed" && c.a !== "resetGame") {
+    watchBroke(s, before, c.now);
+    watchKing(s, c.now);
+  }
   return out;
 }
 

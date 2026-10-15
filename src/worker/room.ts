@@ -1,7 +1,7 @@
 import { DurableObject } from "cloudflare:workers";
 import type { GameState, ID } from "../shared/types";
 import type { Env } from "./env";
-import { REACTIONS } from "../shared/catalog";
+import { REACTIONS, SOUNDS } from "../shared/catalog";
 import { GameError, dispatch, newId, nextDue, normalize, tick } from "./logic";
 import { seedState } from "./seed";
 import { buildPublic, viewFor } from "./views";
@@ -148,6 +148,7 @@ export class GameRoom extends DurableObject<Env> {
     const a = String(body?.a ?? "");
     const p = (body?.p && typeof body.p === "object" ? body.p : {}) as Record<string, unknown>;
     if (a === "react") return this.react(token, p);
+    if (a === "sound") return this.sound(key, p);
 
     const backup = structuredClone(this.s);
     let r: unknown;
@@ -192,6 +193,27 @@ export class GameRoom extends DurableObject<Env> {
     times.push(now);
     this.recent.set(pid, times);
     const msg = JSON.stringify({ t: "fx", d: { kind: "emoji", e, by: pid } });
+    for (const { ws } of this.sockets())
+      try {
+        ws.send(msg);
+      } catch {
+        /* socket went away */
+      }
+    return json({ ok: true, r: null });
+  }
+
+  /* ---------- the host's soundboard: straight to the TV, not saved ---------- */
+
+  private lastSound = 0;
+
+  private sound(key: string | null, p: Record<string, unknown>) {
+    if (!this.isAdmin(key)) return json({ ok: false, err: "צריך הרשאת מנחה" });
+    const snd = SOUNDS.find((x) => x.id === p.id);
+    if (!snd) return json({ ok: false, err: "צליל לא מוכר" });
+    const now = Date.now();
+    if (now - this.lastSound < 700) return json({ ok: false, err: "רגע, לאט 🙂" });
+    this.lastSound = now;
+    const msg = JSON.stringify({ t: "fx", d: { kind: "sound", id: snd.id } });
     for (const { ws } of this.sockets())
       try {
         ws.send(msg);
@@ -253,6 +275,7 @@ export class GameRoom extends DurableObject<Env> {
     const [kind, id, key] = ref.split(":");
     if (kind === "feed") return this.s.feed.find((e) => e.id === id)?.text ?? null;
     if (kind === "round" && key) return this.s.rounds.find((r) => r.id === id)?.lines?.[key] ?? null;
+    if (kind === "sb") return SOUNDS.find((x) => x.id === id)?.line ?? null;
     return null;
   }
 

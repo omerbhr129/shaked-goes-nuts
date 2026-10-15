@@ -3,9 +3,11 @@ export type ID = string;
 export type Audience = "all" | "friends" | "groom";
 export type MissionStatus = "open" | "pending" | "done" | "burned";
 export type RoundStatus = "draft" | "open" | "closed" | "resolved";
-export type RoundKind = "challenge" | "night" | "quiz";
+export type RoundKind = "challenge" | "night" | "quiz" | "vote";
 export type TvMode = "lobby" | "round" | "board" | "night" | "missions" | "awards" | "winner";
-export type FeedKind = "mission" | "reveal" | "caught" | "miss" | "bailout" | "wheel" | "result" | "shot" | "broke" | "gift" | "spin";
+export type FeedKind = "mission" | "reveal" | "caught" | "miss" | "bailout" | "wheel" | "result" | "shot" | "broke" | "gift" | "spin" | "king" | "streak" | "card";
+/** the groom's one-time golden cards */
+export type GroomCard = "veto" | "double" | "drink";
 export type TargetSlot = "G" | "X" | "Y";
 export type WheelKind = "drink" | "punish";
 
@@ -93,15 +95,19 @@ export interface RoundRec {
   resolvedAt: number | null;
   /** resolved with nobody right: every stake went back */
   refunded: boolean;
-  /** quiz only: who drinks — wrong answers, or the slowest if everyone was right */
+  /** quiz: who drinks (wrong answers, or the slowest if everyone was right). vote: whoever got the most votes */
   losers: ID[];
-  loserReason: "wrong" | "slow" | null;
+  loserReason: "wrong" | "slow" | "voted" | null;
   /** one-liners for the TV moments (fast, kings, shot, slow, win, lose), written when the round is settled */
   lines: Record<string, string>;
   /** challenge: what the losers have to do */
   task: string | null;
   /** one-on-one game (pingpong, arm, ...): picks the winner's picture and the line */
   game: string | null;
+  /** winnings are multiplied by this: 2 after the wheel's "next round is double" */
+  mult: number;
+  /** the last round of the night: bet everything you have, winners take double */
+  final: boolean;
 }
 
 /** A round picked at random by the host: the TV spins a reel of titles before it opens. */
@@ -126,6 +132,8 @@ export interface Bet {
   amount: number;
   at: number;
   ticket: number;
+  /** the groom played his "double" card on this bet */
+  double?: boolean;
 }
 
 export interface Mission {
@@ -144,7 +152,7 @@ export interface Mission {
   caughtBy: ID | null;
 }
 
-export type LedgerKind = "bet" | "mission" | "adjust" | "catch" | "penalty" | "bailout" | "quiz" | "gift";
+export type LedgerKind = "bet" | "mission" | "adjust" | "catch" | "penalty" | "bailout" | "quiz" | "gift" | "vote" | "streak" | "swap";
 
 export interface LedgerEntry {
   id: ID;
@@ -182,7 +190,7 @@ export interface FeedEvent {
   players: ID[];
   ref: ID | null;
   /** for the big TV moments: the line on its own, the task, the almonds, how long to catch */
-  data?: { line?: string; task?: string; amount?: number; until?: number; mission?: ID; surprise?: string };
+  data?: { line?: string; task?: string; amount?: number; until?: number; mission?: ID; surprise?: string; card?: GroomCard; streak?: number };
 }
 
 export interface WheelSpin {
@@ -219,6 +227,13 @@ export interface GameState {
   lastResolvedId: ID | null;
   draw: DrawState | null;
   shouts: Shout[];
+  /** the wheel landed on "next round is double": the next round that opens pays ×2 */
+  doubleNext: boolean;
+  /** who the TV last crowned, so every new king is announced once */
+  king: ID | null;
+  kingAt: number;
+  /** the groom's golden cards: true once played */
+  cards: Record<GroomCard, boolean>;
 }
 
 /* ---------- views sent to clients ---------- */
@@ -270,10 +285,12 @@ export interface RoundPub {
   resolvedAt: number | null;
   refunded: boolean;
   losers: ID[];
-  loserReason: "wrong" | "slow" | null;
+  loserReason: "wrong" | "slow" | "voted" | null;
   lines: Record<string, string>;
   task: string | null;
   game: string | null;
+  mult: number;
+  final: boolean;
   number: number;
   stats: OptionStat[];
   /** sum of all stakes (the bank bonus comes on top) */
@@ -327,12 +344,15 @@ export interface PublicView {
   draw: DrawState | null;
   missionsDone: number;
   shouts: ShoutPub[];
+  doubleNext: boolean;
+  cards: Record<GroomCard, boolean>;
 }
 
 export interface MyBet {
   optionId: ID;
   amount: number;
   ticket: number;
+  double?: boolean;
 }
 
 export interface MeView {

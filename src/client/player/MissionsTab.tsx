@@ -101,6 +101,26 @@ function Envelope({ m, game, view }: { m: Mission; game: Game; view: ClientView 
     }
   };
 
+  // a mission that can't work tonight: swap it for another one from the pool
+  const swap = async () => {
+    const ok = await ask({
+      title: "🔄 להחליף את המשימה?",
+      body: "מקבלים משימה אחרת מהמאגר, בדרך כלל באותו שווי. ההחלפה עולה 50 שקדים, ואף אחד לא יודע שהחלפת.",
+      ok: "להחליף ב־50",
+    });
+    if (!ok) return;
+    setBusy(true);
+    try {
+      await game.act("swapMyMission", { missionId: m.id });
+      sfx.coin();
+      toast("🔄 יש לך משימה חדשה", "ok");
+    } catch (e) {
+      toast((e as Error).message, "err");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const unclaim = async () => {
     const ok = await ask({ title: "לבטל את הסימון?", body: "השקדים חוזרים למי ששילם, והמשימה חוזרת להיות פתוחה.", ok: "ביטול הסימון" });
     if (!ok) return;
@@ -170,9 +190,14 @@ function Envelope({ m, game, view }: { m: Mission; game: Game; view: ClientView 
                   </button>
                 </div>
               ) : (
-                <button type="button" className="btn btn-gold" onClick={claim} disabled={busy}>
-                  ✅ ביצעתי!
-                </button>
+                <>
+                  <button type="button" className="btn btn-gold" onClick={claim} disabled={busy}>
+                    ✅ ביצעתי!
+                  </button>
+                  <button type="button" className="link-btn" onClick={swap} disabled={busy || view.me!.available < 50}>
+                    🔄 בלתי אפשרית? להחליף ב־50 שקדים
+                  </button>
+                </>
               )}
             </div>
           </motion.div>

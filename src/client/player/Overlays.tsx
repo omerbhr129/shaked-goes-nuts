@@ -47,7 +47,7 @@ function FlashCard({ flash, onClose }: { flash: Flash; onClose: () => void }) {
 export function ResultOverlay({ view, meId }: { view: ClientView; meId: string }) {
   const [flash, setFlash] = useFlash();
   const rounds: RoundPub[] = [...(view.pub.round ? [view.pub.round] : []), ...view.pub.night];
-  const involved = (r: RoundPub) => !!view.me?.bets[r.id] || (r.kind === "quiz" && r.losers.includes(meId));
+  const involved = (r: RoundPub) => !!view.me?.bets[r.id] || ((r.kind === "quiz" || r.kind === "vote") && r.losers.includes(meId));
   const due = rounds.find((r) => r.status === "resolved" && involved(r) && !lsGet(`sgn.seen.${r.id}.${r.resolvedAt}.${meId}`));
   const key = due ? `sgn.seen.${due.id}.${due.resolvedAt}.${meId}` : null;
 
@@ -55,6 +55,22 @@ export function ResultOverlay({ view, meId }: { view: ClientView; meId: string }
     if (!key || !due) return;
     lsSet(key, "1");
     const label = due.options.find((o) => o.id === due.winnerId)?.label ?? "";
+    if (due.kind === "vote") {
+      const gain = due.results?.find((x) => x.playerId === meId)?.delta ?? 0;
+      // after the TV counts the votes
+      window.setTimeout(() => {
+        if (due.losers.includes(meId)) {
+          setFlash({ kind: "drink", title: due.refunded ? "🥃 כולם שותים!" : "🗳️ נבחרת!", sub: due.lines.voted ?? "שוט!" });
+          sfx.gotcha();
+          navigator.vibrate?.([120, 60, 120, 60, 300]);
+        } else if (gain > 0) {
+          setFlash({ kind: "win", amount: gain, title: "🗳️ הצבעת כמו הרוב!", sub: due.lines.voted ?? "" });
+          sfx.win();
+          burst("coins");
+        }
+      }, 4500);
+      return;
+    }
     if (due.refunded) {
       setFlash({ kind: "drink", title: "🍻 אף אחד לא צדק!", sub: `ההימור חזר אליך. אבל ${due.task ?? "כולם שותים"}` });
       sfx.lose();
@@ -144,7 +160,7 @@ export function FeedWatcher({ view, meId }: { view: ClientView; meId: string }) 
       } else if (e.kind === "spin") {
         const wait = e.data?.until ? Math.max(0, e.data.until - Date.now()) : 0;
         window.setTimeout(() => {
-          if (e.players.includes(meId) && e.data?.surprise !== "rain") {
+          if (e.players.includes(meId) && e.data?.surprise !== "rain" && e.data?.surprise !== "double") {
             setFlash({ kind: "drink", title: e.text.split(" ").slice(1, 4).join(" "), sub: e.data?.line ?? e.text });
             sfx.ding();
             navigator.vibrate?.([120, 60, 120]);
@@ -168,6 +184,18 @@ export function FeedWatcher({ view, meId }: { view: ClientView; meId: string }) 
         sfx.win();
       } else if (e.kind === "caught" && e.players[1] === meId) {
         // the burned-mission flash covers this
+      } else if (e.kind === "king" && e.players[0] === meId) {
+        setFlash({ kind: "win", title: "👑 אתה המלך החדש!", sub: e.data?.line ?? e.text });
+        sfx.fanfare();
+        burst("win");
+      } else if (e.kind === "streak" && e.players[0] === meId) {
+        setFlash({ kind: "win", amount: e.data?.amount, title: `🔥 ${e.data?.streak ?? 3} ברצף!`, sub: "הבנק מוסיף לך בונוס. תמשיך ככה" });
+        sfx.win();
+        burst("coins");
+      } else if (e.kind === "card" && e.data?.card === "drink" && e.players.includes(meId)) {
+        setFlash({ kind: "drink", title: "🃏 החתן החליט: אתה שותה!", sub: e.data?.line ?? e.text });
+        sfx.gotcha();
+        navigator.vibrate?.([120, 60, 120, 60, 300]);
       } else {
         toast(e.text, e.kind === "miss" && e.players[0] === meId ? "err" : "info", 5500);
       }

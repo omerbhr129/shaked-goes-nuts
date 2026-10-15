@@ -186,7 +186,7 @@ ok(!(await act("react", { emoji: "🦖" }, { token: tokens.drori })).ok, "only e
 console.log("quiz: right answers pay, wrong or silent ones drink");
 const vq = (await view({ key: KEY })).admin.rounds;
 const order = vq.filter((x) => x.kind !== "night").map((x) => x.kind);
-ok(order[2] === "quiz" && order[5] === "quiz", "a quiz after every two challenges");
+ok(order[2] === "quiz" && order[5] === "vote" && order[8] === "quiz", "after every two challenges: a quiz or a vote, taking turns");
 const q2 = vq.find((x) => x.id === "q2");
 ok(q2.correctId === "o2", "almond quiz has its answer set in advance");
 await admin("openRound", { roundId: q2.id, seconds: 0 });
@@ -382,10 +382,195 @@ await sleep(3200);
 ok((await pub()).round.status === "closed", "alarm closed the round");
 await admin("cancelRound", { roundId: r3.id });
 
+/* ---------- the night's extras: votes, kings, streaks, the double, the final, the groom's cards ---------- */
+
+const rounds = async () => (await view({ key: KEY })).admin.rounds;
+const draft = async (pred) => (await rounds()).find((x) => x.status === "draft" && pred(x));
+// throwaway yes/no challenges nobody sits out (a reseed at the end clears them)
+let mkN = 0;
+async function mk() {
+  const yn = [
+    { id: "yes", label: "כן" },
+    { id: "no", label: "לא" },
+  ];
+  const made = await admin("saveRound", { round: { kind: "challenge", emoji: "🧪", title: `בדיקה ${++mkN}`, note: "", options: yn, minBet: 50, maxBet: 500, seconds: 0, bonus: 200, noBet: [] } });
+  return (await rounds()).find((x) => x.id === made.r.id);
+}
+for (const id of ids) await admin("adjust", { playerId: id, delta: 2000, note: "test" });
+
+console.log("vote: the most votes drinks, the majority earns");
+let vr = await draft((x) => x.kind === "vote");
+ok(vr.options.length === 8 && vr.seconds === 40 && vr.reward === 100, "a vote has every player as an option");
+ok((await admin("openRound", { roundId: vr.id, seconds: 0 })).ok, "a vote opens");
+r = await act("bet", { roundId: vr.id, optionId: "itay", amount: 0 }, { token: tokens.itay });
+ok(!r.ok, `nobody votes for himself (${r.err})`);
+let vBefore = await pub();
+for (const id of ["itay", "benharoosh", "ayalon", "birman", "sisu"]) await act("bet", { roundId: vr.id, optionId: "drori", amount: 0 }, { token: tokens[id] });
+await act("bet", { roundId: vr.id, optionId: "yali", amount: 0 }, { token: tokens.shmay });
+await act("bet", { roundId: vr.id, optionId: "yali", amount: 0 }, { token: tokens.drori });
+let vp = await pub();
+ok(vp.round.status === "open" && vp.round.bets === null && vp.round.stats.every((x) => x.count === 0), "votes stay secret while it's open");
+await act("bet", { roundId: vr.id, optionId: "drori", amount: 0 }, { token: tokens.yali });
+vp = await pub();
+ok(vp.round.status === "resolved" && vp.round.losers.join() === "drori" && vp.round.loserReason === "voted", "everyone voted → it counts itself, drori drinks");
+ok(bal(vp, "itay") - bal(vBefore, "itay") === 100 && bal(vp, "yali") - bal(vBefore, "yali") === 100 && bal(vp, "shmay") === bal(vBefore, "shmay"), "the majority gets +100, the rest nothing");
+ok(vp.feed.some((e) => e.kind === "shot" && e.ref === vr.id && e.players.join() === "drori") && !!vp.round.lines.voted && !!vp.round.lines.majority, "the chosen one drinks, with a line for the TV");
+ok(vp.round.bets.length === 8, "after the count everybody sees who voted for whom");
+
+console.log("vote: a tie means both drink, the host can count early, nobody voting means everybody drinks");
+vr = await draft((x) => x.kind === "vote");
+await admin("openRound", { roundId: vr.id, seconds: 0 });
+for (const [id, to] of [["ayalon", "sisu"], ["birman", "sisu"], ["drori", "yali"], ["shmay", "yali"]]) await act("bet", { roundId: vr.id, optionId: to, amount: 0 }, { token: tokens[id] });
+await admin("closeRound", { roundId: vr.id });
+vp = await pub();
+ok(vp.round.status === "resolved" && [...vp.round.losers].sort().join() === "sisu,yali", "a tie: both drink");
+vr = await draft((x) => x.kind === "vote");
+await admin("openRound", { roundId: vr.id, seconds: 2 });
+await sleep(3300);
+vp = await pub();
+ok(vp.round.status === "resolved" && vp.round.refunded && vp.round.losers.length === 8, "nobody voted before the timer: everybody drinks");
+r = await admin("drawRound", { kind: "vote" });
+ok(r.ok && (await rounds()).find((x) => x.id === r.r.id)?.kind === "vote", "the wheel can land on a vote");
+await admin("cancelRound", { roundId: r.r.id });
+
+console.log("the wheel's double: the next round pays ×2");
+r = await admin("drawRound", { kind: "any", pick: "double" });
+ok(r.ok && r.r.surprise === "double" && (await pub()).doubleNext === true, "the wheel landed on 'next round is double'");
+let ch = await mk();
+await admin("openRound", { roundId: ch.id, seconds: 0 });
+vp = await pub();
+ok(vp.round.mult === 2 && vp.doubleNext === false, "the next round picked up the double");
+await act("bet", { roundId: ch.id, optionId: "yes", amount: 100 }, { token: tokens.ayalon });
+await act("bet", { roundId: ch.id, optionId: "yes", amount: 100 }, { token: tokens.birman });
+await act("bet", { roundId: ch.id, optionId: "no", amount: 100 }, { token: tokens.sisu });
+await admin("closeRound", { roundId: ch.id });
+await admin("resolveRound", { roundId: ch.id, optionId: "yes" });
+let res = (await pub()).round.results;
+const dOf = (id) => res.find((x) => x.playerId === id)?.delta;
+// pot 300 + 200 bonus = 500, yes holds 200 → 150 profit each, doubled
+ok(dOf("ayalon") === 300 && dOf("birman") === 300 && dOf("sisu") === -100, `double pays twice the profit, losers lose only their stake (${dOf("ayalon")}, ${dOf("sisu")})`);
+r = await admin("drawRound", { kind: "any", pick: "double" });
+ch = await mk();
+await admin("openRound", { roundId: ch.id, seconds: 0 });
+await admin("cancelRound", { roundId: ch.id });
+ok((await pub()).doubleNext === true, "a cancelled double round hands the double on");
+ch = await mk();
+await admin("openRound", { roundId: ch.id, seconds: 0 });
+await admin("cancelRound", { roundId: ch.id });
+await admin("resetGame", {});
+ok((await pub()).doubleNext === false, "a reset clears the double");
+for (const id of ids) await admin("adjust", { playerId: id, delta: 2000, note: "test" });
+
+console.log("the final: bet everything, winners take double");
+r = await admin("drawRound", { kind: "challenge", final: true });
+ok(r.ok && r.r.final === true, "the final is drawn from the challenges");
+await sleep(8300);
+let fr = (await pub()).round;
+ok(fr.final && fr.id === r.r.id, "the final is on");
+const allIn = ids.find((id) => id !== "itay" && !fr.noBet.includes(id));
+const rival = ids.find((id) => id !== "itay" && id !== allIn && !fr.noBet.includes(id));
+const fav = (await view({ token: tokens[allIn] })).me.available;
+r = await act("bet", { roundId: fr.id, optionId: fr.options[0].id, amount: fav }, { token: tokens[allIn] });
+ok(r.ok && fav > fr.maxBet, `all in: ${fav} on the table (more than the usual ${fr.maxBet})`);
+await act("bet", { roundId: fr.id, optionId: fr.options[1].id, amount: 100 }, { token: tokens[rival] });
+await admin("closeRound", { roundId: fr.id });
+await admin("resolveRound", { roundId: fr.id, optionId: fr.options[0].id });
+res = (await pub()).round.results;
+// pot fav + 100 + bonus; he alone on the winning side: profit 100 + bonus, doubled
+ok(dOf(allIn) === (100 + fr.bonus) * 2, `the final pays double (${dOf(allIn)})`);
+
+console.log("the groom's golden cards");
+r = await act("groomCard", { card: "drink", target: "sisu" }, { token: tokens.ayalon });
+ok(!r.ok, `only the groom has golden cards (${r.err})`);
+r = await act("groomCard", { card: "drink", target: "sisu" }, { token: tokens.itay });
+vp = await pub();
+ok(r.ok && vp.feed.some((e) => e.kind === "card" && e.data?.card === "drink" && e.players.join() === "sisu") && vp.cards.drink, "drink card: the TV tells sisu to drink");
+r = await act("groomCard", { card: "drink", target: "yali" }, { token: tokens.itay });
+ok(!r.ok, "each card works once a night");
+r = await act("groomCard", { card: "veto" }, { token: tokens.itay });
+ok(!r.ok, `veto needs a live challenge (${r.err})`);
+ch = await mk();
+await admin("openRound", { roundId: ch.id, seconds: 0 });
+await act("bet", { roundId: ch.id, optionId: "yes", amount: 100 }, { token: tokens.ayalon });
+const ayBefore = (await view({ token: tokens.ayalon })).me.available;
+r = await act("groomCard", { card: "veto" }, { token: tokens.itay });
+vp = await pub();
+ok(r.ok && !vp.round && (await view({ token: tokens.ayalon })).me.available === ayBefore + 100 && vp.feed.some((e) => e.kind === "card" && e.data?.card === "veto"), "veto: the challenge is off and the bets are back");
+ch = await mk();
+await admin("openRound", { roundId: ch.id, seconds: 0 });
+r = await act("groomCard", { card: "double" }, { token: tokens.itay });
+ok(!r.ok, `double needs a bet first (${r.err})`);
+await act("bet", { roundId: ch.id, optionId: "yes", amount: 100 }, { token: tokens.itay });
+await act("bet", { roundId: ch.id, optionId: "no", amount: 100 }, { token: tokens.drori });
+r = await act("groomCard", { card: "double" }, { token: tokens.itay });
+ok(r.ok && (await view({ token: tokens.itay })).me.bets[ch.id]?.double === true, "double card on the groom's bet");
+await admin("closeRound", { roundId: ch.id });
+await admin("resolveRound", { roundId: ch.id, optionId: "yes" });
+res = (await pub()).round.results;
+// pot 200 + 200 bonus = 400, he alone on yes: 300 profit, doubled
+ok(dOf("itay") === 600 && dOf("drori") === -100, `the groom's double (${dOf("itay")})`);
+vp = await pub();
+ok(vp.cards.veto && vp.cards.double && vp.cards.drink, "all three cards are spent");
+
+console.log("swap a mission for 50");
+const mv = await view({ token: tokens.birman });
+const openM = mv.me.missions.find((m) => m.status === "open");
+r = await act("swapMyMission", { missionId: openM.id }, { token: tokens.birman });
+const mv2 = await view({ token: tokens.birman });
+ok(r.ok && !mv2.me.missions.some((m) => m.id === openM.id) && mv2.me.missions.length === mv.me.missions.length && mv2.me.available === mv.me.available - 50, "swapped: a different mission, 50 almonds less");
+ok(mv2.me.missions.every((m) => !Object.values(m.targets).includes("birman")), "the new mission is about someone else");
+r = await act("swapMyMission", { missionId: openM.id }, { token: tokens.birman });
+ok(!r.ok, "can't swap a mission that isn't yours anymore");
+
+console.log("three in a row: a streak, and a bonus");
+async function settleOne(winner, loser, win) {
+  const x = await mk();
+  await admin("openRound", { roundId: x.id, seconds: 0 });
+  await act("bet", { roundId: x.id, optionId: win ? "yes" : "no", amount: 50 }, { token: tokens[winner] });
+  await act("bet", { roundId: x.id, optionId: win ? "no" : "yes", amount: 50 }, { token: tokens[loser] });
+  await admin("closeRound", { roundId: x.id });
+  await admin("resolveRound", { roundId: x.id, optionId: "yes" });
+  return x.id;
+}
+await settleOne("yali", "shmay", false);
+await settleOne("yali", "shmay", true);
+await settleOne("yali", "shmay", true);
+ok(!(await pub()).feed.some((e) => e.kind === "streak" && e.players[0] === "yali"), "two in a row: nothing yet");
+const third = await settleOne("yali", "shmay", true);
+vp = await pub();
+const st = vp.feed.find((e) => e.kind === "streak" && e.ref === third);
+ok(st && st.players[0] === "yali" && st.data?.streak === 3 && st.data?.amount === 100, `three in a row: on the TV with +100 (${st?.text})`);
+r = await admin("undoResolve", { roundId: third });
+ok(!(await pub()).feed.some((e) => e.kind === "streak" && e.ref === third), "undoing the result takes the streak back");
+await admin("cancelRound", { roundId: third });
+
+console.log("a new king is crowned");
+await admin("adjust", { playerId: "shmay", delta: 20000, note: "test" });
+let king = (await pub()).feed.find((e) => e.kind === "king" && e.players[0] === "shmay");
+if (!king) {
+  // at most one crowning every 20 seconds
+  await sleep(20500);
+  await admin("adjust", { playerId: "shmay", delta: 1, note: "test" });
+  king = (await pub()).feed.find((e) => e.kind === "king" && e.players[0] === "shmay");
+}
+ok(!!king && !!king.data?.line, `the TV crowns the new king (${king?.text})`);
+await admin("adjust", { playerId: "shmay", delta: 5, note: "test" });
+ok((await pub()).feed.filter((e) => e.kind === "king" && e.players[0] === "shmay").length === 1, "the same king isn't crowned twice");
+
+console.log("the host's soundboard");
+ok((await admin("sound", { id: "cheers" })).ok, "the host plays a sound on the TV");
+ok(!(await act("sound", { id: "cheers" }, { token: tokens.ayalon })).ok, "players can't");
+ok(!(await admin("sound", { id: "nope" })).ok, "unknown sounds are refused");
+
 console.log("reset");
 r = await admin("resetGame", { unclaim: true, undeal: true });
 p = await pub();
 ok(r.ok && p.players.every((x) => x.balance === 1000 && !x.claimed) && p.night.length === 0 && p.feed.length === 0, "reset: clean slate");
+ok(!p.cards.veto && !p.cards.double && !p.cards.drink && !p.doubleNext, "reset: the groom gets his cards back");
+// back to the seeded game: no test rounds, no quick duels, fresh missions
+await admin("reseed");
+await admin("resetGame", { unclaim: true, undeal: true });
+ok(!(await rounds()).some((x) => x.title.startsWith("בדיקה ")), "the test rounds are gone");
 ok(!(await view({ key: KEY })).admin.rounds.some((x) => x.id.startsWith("duel-")), "quick duels don't survive a reset");
 
 console.log(failures ? `\n${failures} FAILED` : "\nALL PASSED");

@@ -43,3 +43,34 @@ export const GAMES: Record<string, { emoji: string; name: string; note: string }
 
 /** What a phone can throw at the TV. */
 export const REACTIONS = ["🔥", "😂", "🍺", "🥃", "👑", "🥜", "💩", "🤡", "❤️", "🎉", "🙈", "💸"];
+
+/** The host's soundboard: plays on the TV right away. `line` is read out by the announcer, `fx` is a sound effect. */
+export interface Sound {
+  id: string;
+  emoji: string;
+  label: string;
+  line?: string;
+  fx: "siren" | "fanfare" | "applause" | "drumroll" | "horn" | "boo" | "boing" | "gotcha" | "alert" | "win";
+}
+
+export const SOUNDS: Sound[] = [
+  { id: "attention", emoji: "📢", label: "שימו לב!", line: "שימו לב יא זונות! שימו לב!", fx: "siren" },
+  { id: "cheers", emoji: "🥂", label: "לחיים!", line: "לחיים יא זונות! כוסות למעלה!", fx: "fanfare" },
+  { id: "applause", emoji: "👏", label: "מחיאות כפיים", fx: "applause" },
+  { id: "drums", emoji: "🥁", label: "תופים", fx: "drumroll" },
+  { id: "horn", emoji: "📯", label: "צופר", fx: "horn" },
+  { id: "groom", emoji: "🤵", label: "לכבוד החתן", line: "כולם לכבוד החתן! איתי! איתי! איתי!", fx: "fanfare" },
+  { id: "shot", emoji: "🥃", label: "שוט!", line: "שוט! שוט! שוט! יאללה יא זונות, למטה!", fx: "gotcha" },
+  { id: "boo", emoji: "👎", label: "בוז!", line: "בוווז! יא נוב, בוז!", fx: "boo" },
+  { id: "wow", emoji: "😱", label: "וואו!", line: "וואלה אחי, מה זה הדבר הזה?!", fx: "boing" },
+  { id: "quiet", emoji: "🤫", label: "שקט!", line: "שקט יא זונות! תנו לשמוע!", fx: "alert" },
+  { id: "yalla", emoji: "⏰", label: "יאללה, מהר!", line: "יאללה יאללה, מה אתם ישנים? תהמרו כבר!", fx: "alert" },
+  { id: "king", emoji: "👑", label: "תשתחוו למלך", line: "כולם להשתחוות למלך! יאללה, ראש לרצפה!", fx: "win" },
+];
+
+/** What the groom's golden cards do, for his phone and the TV. */
+export const CARDS = {
+  veto: { emoji: "🛑", name: "וטו", text: "מבטל את האתגר שפתוח עכשיו. כל ההימורים חוזרים." },
+  double: { emoji: "×2", name: "הכפלה", text: "מכפיל את מה שתרוויח מההימור שלך על האתגר הפתוח." },
+  drink: { emoji: "🥃", name: "אתה שותה!", text: "בוחרים חבר, והוא שותה עכשיו מול כולם." },
+} as const;

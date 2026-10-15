@@ -160,6 +160,23 @@ const MISSIONS: MissionSeed[] = [
   ["תגרום ל{X} לעמוד לידך במנגל ולהגיד ״כן, שף״", 100, "groom"],
 ];
 
+// "Who's most likely to...": everyone votes on their phone. Whoever gets the most votes drinks;
+// whoever voted with the majority gets almonds.
+const VOTES: string[] = [
+  "מי הכי סביר שיירדם ראשון הלילה?",
+  "מי הכי סביר שיתחתן הבא אחרי איתי?",
+  "מי הכי סביר שיקפוץ ראשון לבריכה הלילה?",
+  "מי הכי סביר שיבכה בחתונה של איתי?",
+  "מי הכי סביר שישרוף את המנגל?",
+  "מי הכי סביר שיאבד את הטלפון בווילה?",
+  "מי הכי סביר שיבקש חילוץ מהבנק ראשון?",
+  "מי הכי סביר שיגיע מאוחר לחתונה?",
+  "מי הכי סביר שינאם נאום מביך בחתונה?",
+  "מי הכי סביר שיתעורר מחר בלי לזכור כלום?",
+  "מי הכי סביר ששחף תתקשר אליו לבדוק מה עם איתי?",
+  "מי הכי סביר שיסיים את הלילה בלי חולצה?",
+];
+
 /** Ids that say nothing: an alert carries the mission id, and ordered ids would give away whose list it came from. */
 function randomId() {
   const a = new Uint8Array(8);
@@ -211,6 +228,8 @@ function round(kind: RoundKind, seed: RoundSeed, i: number): RoundRec {
     lines: {},
     task: null,
     game: seed[5] ?? null,
+    mult: 1,
+    final: false,
   };
 }
 
@@ -219,14 +238,22 @@ function quiz(seed: QuizSeed, i: number): RoundRec {
   return { ...round("quiz", [emoji, title, note, options, noBet], i), id: `q${i + 1}`, seconds: 25, bonus: 50, reward: 100, correctId: correct };
 }
 
-/** Challenges with a quiz question after every two. */
+function vote(title: string, i: number): RoundRec {
+  const note = "כולם מצביעים בטלפון. מי שמקבל הכי הרבה קולות שותה, ומי שהצביע כמו הרוב מקבל 100 שקדים.";
+  return { ...round("vote", ["🗳️", title, note, vs(...ALL), []], i), id: `v${i + 1}`, seconds: 40, bonus: 0, reward: 100 };
+}
+
+/** Two challenges, then a question or a vote, taking turns. */
 function interleave(): RoundRec[] {
   const ch = CHALLENGES.map((r, i) => round("challenge", r, i));
   const qz = QUIZ.map(quiz);
+  const vt = VOTES.map(vote);
   const out: RoundRec[] = [];
-  while (ch.length || qz.length) {
+  let turn = 0;
+  while (ch.length || qz.length || vt.length) {
     out.push(...ch.splice(0, 2));
-    if (qz.length) out.push(qz.shift()!);
+    const next = turn++ % 2 === 0 ? (qz.shift() ?? vt.shift()) : (vt.shift() ?? qz.shift());
+    if (next) out.push(next);
   }
   return out;
 }
@@ -274,5 +301,9 @@ export function seedState(now: number): GameState {
     lastResolvedId: null,
     draw: null,
     shouts: [],
+    doubleNext: false,
+    king: null,
+    kingAt: 0,
+    cards: { veto: false, double: false, drink: false },
   };
 }

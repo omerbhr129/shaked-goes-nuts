@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ClientView, PlayerPub, TvMode } from "../../shared/types";
+import { SOUNDS } from "../../shared/catalog";
 import { awardSteps } from "../awards";
 import { cls, fmt, useMedia } from "../lib";
 import { creds, type Game, useGame } from "../net";
@@ -93,7 +94,38 @@ export function AdminApp() {
         {tab === "players" && <PlayersTab game={game} view={view} run={run} />}
         {tab === "tv" && <TvTab view={view} run={run} wide={wide} />}
       </main>
+      <SoundBoard run={run} />
     </div>
+  );
+}
+
+/** The host is the DJ: a button in the corner of every tab, and the TV plays it right away. */
+function SoundBoard({ run }: { run: Run }) {
+  const [open, setOpen] = useState(false);
+  const [last, setLast] = useState<string | null>(null);
+  const fire = async (id: string) => {
+    navigator.vibrate?.(15);
+    setLast(id);
+    await run("sound", { id });
+    window.setTimeout(() => setLast((x) => (x === id ? null : x)), 900);
+  };
+  return (
+    <>
+      <button type="button" className="sb-fab" onClick={() => setOpen(true)} aria-label="לוח סאונדים לטלוויזיה">
+        📯
+      </button>
+      <Sheet open={open} onClose={() => setOpen(false)} title="📯 לוח סאונדים">
+        <p className="muted">כל לחיצה מתנגנת מיד בטלוויזיה, עם הקריין.</p>
+        <div className="sb-grid">
+          {SOUNDS.map((x) => (
+            <button key={x.id} type="button" className={cls("sb-btn", last === x.id && "on")} onClick={() => fire(x.id)}>
+              <span aria-hidden="true">{x.emoji}</span>
+              <b>{x.label}</b>
+            </button>
+          ))}
+        </div>
+      </Sheet>
+    </>
   );
 }
 

@@ -4,6 +4,7 @@ import type { ClientView, FeedEvent, PlayerPub, ShoutPub } from "../../shared/ty
 import { cls, mmss } from "../lib";
 import { type Game, useServerNow } from "../net";
 import { type Theme, sfx, speak, startMusic, stopMusic } from "../sound";
+import { SOUNDS, type Sound } from "../../shared/catalog";
 import { Avatar } from "../ui";
 import { spinLength } from "./Moments";
 
@@ -222,7 +223,7 @@ export function MusicDirector({ view, game, armed }: { view: ClientView; game: G
   const now = useServerNow(game, live || (!!draw && Date.now() + game.offset < draw.at + spinLength(draw)), 500);
   const drawing = !!draw && now < draw.at + spinLength(draw);
   const betting = live && !drawing && (r!.closesAt === null || now < r!.closesAt);
-  const theme: Theme | null = drawing ? null : betting && view.pub.tv.mode === "round" ? (r!.kind === "quiz" ? "quiz" : "bet") : "lounge";
+  const theme: Theme | null = drawing ? null : betting && view.pub.tv.mode === "round" ? (r!.kind === "quiz" || r!.kind === "vote" ? "quiz" : "bet") : "lounge";
   useEffect(() => {
     if (!armed) return;
     if (theme) startMusic(theme);
@@ -336,10 +337,12 @@ export function ChatLog({ view, game }: { view: ClientView; game: Game }) {
     }
     if (r.status !== t.status) {
       if (r.status === "open") push({ id: `o:${key}`, at: now, who: null, kind: "sys", text: `▶ נפתח: ${r.emoji} ${r.title}` });
-      if (r.status === "closed") push({ id: `c:${key}`, at: now, who: null, kind: "sys", text: r.kind === "quiz" ? "🔒 הזמן לענות נגמר" : "🔒 ההימורים נסגרו" });
+      if (r.status === "closed") push({ id: `c:${key}`, at: now, who: null, kind: "sys", text: r.kind === "quiz" || r.kind === "vote" ? "🔒 הזמן נגמר" : "🔒 ההימורים נסגרו" });
       if (r.status === "resolved") {
-        const label = r.options.find((o) => o.id === r.winnerId)?.label ?? "";
-        push({ id: `r:${key}:${r.resolvedAt}`, at: now, who: null, kind: "sys", text: `🏁 ${r.kind === "quiz" ? "התשובה" : "התוצאה"}: ${label}` });
+        const label = r.kind === "vote" ? r.losers.map((id) => peopleRef.current[id]?.name).join(", ") : (r.options.find((o) => o.id === r.winnerId)?.label ?? "");
+        const what = r.kind === "quiz" ? "התשובה" : r.kind === "vote" ? "🗳️ נבחר" : "התוצאה";
+        // the TV counts the votes first; the log waits for it
+        window.setTimeout(() => push({ id: `r:${key}:${r.resolvedAt}`, at: Date.now(), who: null, kind: "sys", text: `🏁 ${what}: ${label}` }), r.kind === "vote" ? 6000 : 0);
       }
       t.status = r.status;
     }
@@ -347,7 +350,7 @@ export function ChatLog({ view, game }: { view: ClientView; game: Game }) {
       if (!t.bettors.has(id)) {
         t.bettors.add(id);
         const p = peopleRef.current[id];
-        if (p) push({ id: `b:${key}:${id}`, at: now, who: p, kind: "sys", text: r.kind === "quiz" ? `❓ ${p.name} ענה` : `🎲 ${p.name} הימר` });
+        if (p) push({ id: `b:${key}:${id}`, at: now, who: p, kind: "sys", text: r.kind === "quiz" ? `❓ ${p.name} ענה` : r.kind === "vote" ? `🗳️ ${p.name} הצביע` : `🎲 ${p.name} הימר` });
       }
   }, [r?.id, r?.openedAt, r?.status, r?.bettors.length, r?.resolvedAt]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -380,5 +383,55 @@ export function ChatLog({ view, game }: { view: ClientView; game: Game }) {
         </AnimatePresence>
       </div>
     </aside>
+  );
+}
+
+const PLAY: Record<Sound["fx"], () => void> = {
+  siren: sfx.siren,
+  fanfare: sfx.fanfare,
+  applause: sfx.applause,
+  drumroll: () => sfx.drumroll(2.2),
+  horn: sfx.horn,
+  boo: sfx.boo,
+  boing: sfx.boing,
+  gotcha: sfx.gotcha,
+  alert: sfx.alert,
+  win: sfx.win,
+};
+
+/** The host's soundboard: the sound, the announcer, and the words big on the screen for a moment. */
+export function SoundFx({ game }: { game: Game }) {
+  const [shown, setShown] = useState<{ n: number; s: Sound } | null>(null);
+  const n = useRef(0);
+  useEffect(
+    () =>
+      game.onFx((fx) => {
+        if (fx.kind !== "sound") return;
+        const snd = SOUNDS.find((x) => x.id === fx.id);
+        if (!snd) return;
+        const k = ++n.current;
+        setShown({ n: k, s: snd });
+        PLAY[snd.fx]();
+        if (snd.line) speak(`sb:${snd.id}`);
+        window.setTimeout(() => setShown((cur) => (cur?.n === k ? null : cur)), 2800);
+      }),
+    [game],
+  );
+  return (
+    <AnimatePresence>
+      {shown && (
+        <motion.div
+          key={shown.n}
+          className="sb-show"
+          initial={{ scale: 0.3, opacity: 0, rotate: -8 }}
+          animate={{ scale: 1, opacity: 1, rotate: -3 }}
+          exit={{ scale: 1.5, opacity: 0 }}
+          transition={{ type: "spring", stiffness: 260, damping: 14 }}
+        >
+          <span aria-hidden="true">{shown.s.emoji}</span>
+          <b>{shown.s.label}</b>
+        </motion.div>
+      )}
+    </AnimatePresence>
   );
 }

@@ -41,11 +41,7 @@ interface Snapshot {
 }
 
 /** Things that happen and are gone: emojis flying at the TV. */
-export interface Fx {
-  kind: "emoji";
-  e: string;
-  by: string;
-}
+export type Fx = { kind: "emoji"; e: string; by: string } | { kind: "sound"; id: string };
 
 /**
  * One live connection per screen. State arrives over a WebSocket; actions go over HTTP so a

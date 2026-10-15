@@ -169,7 +169,7 @@ export function RoundScreen({ view, game }: { view: ClientView; game: Game }) {
     const L = r.lines ?? {};
     for (const k of ["duel", "win", "lose"]) if (L[k]) prefetchLine(`round:${r.id}:${k}`);
     const steps: [typeof phase, number][] = [
-      ["suspense", 1750],
+      ["suspense", r.final ? 3500 : 1750],
       ["reveal", 3200],
     ];
     if (L.duel) steps.push(["duel", 7000]);
@@ -179,7 +179,7 @@ export function RoundScreen({ view, game }: { view: ClientView; game: Game }) {
       steps,
       (ph) => {
         setPhase(ph);
-        if (ph === "suspense") sfx.drumroll(1.6);
+        if (ph === "suspense") sfx.drumroll(r.final ? 3.3 : 1.6);
         if (ph === "reveal") {
           sfx.win();
           burst("big");
@@ -232,10 +232,11 @@ export function RoundScreen({ view, game }: { view: ClientView; game: Game }) {
   const champ = champId ? people[champId] : undefined;
 
   return (
-    <div className={cls("tvround", many && "many")}>
+    <div className={cls("tvround", many && "many", r.final && "final")}>
       <header className="tvround-head">
         <span className="tvround-num">
-          סיבוב {r.number} מתוך {view.pub.roundsTotal}
+          {r.final ? "🏁 סיבוב הגמר" : `סיבוב ${r.number} מתוך ${view.pub.roundsTotal}`}
+          <MultBadge r={r} />
         </span>
         <div className="tv-pot">
           <span className="tv-pot-label">בקופה</span>
@@ -254,7 +255,12 @@ export function RoundScreen({ view, game }: { view: ClientView; game: Game }) {
         </span>
         {r.title}
       </h1>
-      {r.note && <p className="tvround-note">{r.note}</p>}
+      {(r.note || r.final) && (
+        <p className="tvround-note">
+          {r.final && <span className="tv-final-line">🏁 הכל או כלום: מהמרים על כל השקדים, והזוכים לוקחים כפול</span>}
+          {r.note}
+        </p>
+      )}
 
       <div className="tvopts">
         {r.options.map((o) => {
@@ -496,7 +502,10 @@ export function QuizScreen({ view, game }: { view: ClientView; game: Game }) {
   return (
     <div className={cls("tvquiz", r.options.length > 4 && "many")}>
       <header className="tvround-head">
-        <span className="tvround-num">❓ שאלת ידע · סיבוב {r.number}</span>
+        <span className="tvround-num">
+          ❓ שאלת ידע · סיבוב {r.number}
+          <MultBadge r={r} />
+        </span>
         <div className="tv-pot">
           <span className="tv-pot-label">תשובה נכונה</span>
           <span className="tv-pot-amount">
@@ -616,6 +625,173 @@ export function QuizScreen({ view, game }: { view: ClientView; game: Game }) {
         )}
         {phase === "shot" && (
           <Spotlight key="shot" kind="shot" title="🥃 שוט!" people={r.losers.map((id) => people[id]).filter((p): p is PlayerPub => !!p)} line={r.lines.shot ?? "טעיתם. לשתות!"} />
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
+/** The wheel's "next round is double": a ×2 stamp next to the round number. */
+function MultBadge({ r }: { r: RoundPub }) {
+  if (r.mult <= 1) return null;
+  return (
+    <motion.span className="mult-badge" dir="ltr" initial={{ scale: 3, rotate: -20, opacity: 0 }} animate={{ scale: 1, rotate: -6, opacity: 1 }} transition={{ type: "spring", stiffness: 220, damping: 12 }}>
+      ×2 💥
+    </motion.span>
+  );
+}
+
+/* ---------------- "who's most likely to": everyone votes ---------------- */
+
+export function VoteScreen({ view, game }: { view: ClientView; game: Game }) {
+  const r = view.pub.round!;
+  const now = useServerNow(game, r.status === "open", 200);
+  const open = r.status === "open" && (r.closesAt === null || now < r.closesAt);
+  const people = useMemo(() => byId(view.pub.players), [view.pub.players]);
+  const resolvedKey = r.status === "resolved" ? `${r.id}:${r.resolvedAt}` : null;
+  const [phase, setPhase] = useState<"suspense" | "count" | "voted" | null>(null);
+
+  // the count: drum roll → the votes land on the faces → whoever got the most, full screen
+  useLayoutEffect(() => {
+    if (!resolvedKey || !r.resolvedAt) return;
+    if (Date.now() + game.offset - r.resolvedAt > 8000) {
+      setPhase("count");
+      return;
+    }
+    if (r.lines.voted) prefetchLine(`round:${r.id}:voted`);
+    return runSteps<"suspense" | "count" | "voted">(
+      [
+        ["suspense", 1500],
+        ["count", 4500],
+        ["voted", 7500],
+      ],
+      (ph) => {
+        setPhase(ph);
+        if (ph === "suspense") sfx.drumroll(1.4);
+        if (ph === "count") {
+          sfx.win();
+          burst("win");
+        }
+        if (ph === "voted") {
+          sfx.gotcha();
+          speak(`round:${r.id}:voted`);
+        }
+      },
+      () => setPhase("count"),
+    );
+  }, [resolvedKey]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const secsLeft = open && r.closesAt ? Math.ceil((r.closesAt - now) / 1000) : null;
+  useEffect(() => {
+    if (secsLeft !== null && secsLeft > 0 && secsLeft <= 5) sfx.tick();
+  }, [secsLeft]);
+
+  const counted = r.status === "resolved" && phase !== "suspense";
+  const voted = new Set(r.bettors);
+  const eligible = view.pub.players.filter((p) => p.claimed && !r.noBet.includes(p.id));
+  const votes = r.bets ?? [];
+  const top = Math.max(1, ...r.options.map((o) => votes.filter((b) => b.optionId === o.id).length));
+  const chosen = r.losers.map((id) => people[id]).filter((p): p is PlayerPub => !!p);
+  const pay = r.reward * (r.mult || 1);
+
+  return (
+    <div className="tvquiz tvvote">
+      <header className="tvround-head">
+        <span className="tvround-num">
+          🗳️ הצבעה · סיבוב {r.number}
+          <MultBadge r={r} />
+        </span>
+        <div className="tv-pot">
+          <span className="tv-pot-label">מצביעים כמו הרוב</span>
+          <span className="tv-pot-amount">
+            <Led value={pay} />
+            <Coin size={34} />
+          </span>
+          <span className="tv-pot-note">מי שמקבל הכי הרבה קולות שותה 🥃</span>
+        </div>
+        <RoundClock r={r} open={open} now={now} suspense={phase === "suspense"} />
+      </header>
+      <h1 className="tvround-title">
+        <span className="tvround-emoji" aria-hidden="true">
+          {r.emoji}
+        </span>
+        {r.title}
+      </h1>
+
+      <div className="vote-tiles">
+        {r.options.map((o) => {
+          const p = o.playerId ? people[o.playerId] : undefined;
+          const who = votes.filter((b) => b.optionId === o.id);
+          const isChosen = counted && !!o.playerId && r.losers.includes(o.playerId) && !r.refunded;
+          return (
+            <motion.div key={o.id} layout className={cls("vote-tile", isChosen && "chosen", counted && !isChosen && "dim")}>
+              {p && <Avatar p={p} size={118} />}
+              <span className="vote-tile-name">{o.label}</span>
+              {counted && (
+                <>
+                  <motion.b className="vote-tile-n num" initial={{ scale: 0 }} animate={{ scale: 1 }} transition={{ type: "spring", stiffness: 260, damping: 12 }}>
+                    {who.length}
+                  </motion.b>
+                  <div className="vote-tile-bar">
+                    <motion.i initial={{ scaleX: 0 }} animate={{ scaleX: who.length / top }} transition={{ type: "spring", stiffness: 70, damping: 16, delay: 0.2 }} />
+                  </div>
+                  {who.length > 0 && (
+                    <span className="vote-tile-who">
+                      {who.map((b) => (people[b.playerId] ? <Avatar key={b.playerId} p={people[b.playerId]} size={30} /> : null))}
+                    </span>
+                  )}
+                </>
+              )}
+            </motion.div>
+          );
+        })}
+      </div>
+
+      <footer className="tvround-foot">
+        {open && (
+          <div className="waiting">
+            <div className="waiting-group">
+              <span className="waiting-label">כבר הצביעו 🤫</span>
+              <div className="waiting-faces">
+                {eligible
+                  .filter((p) => voted.has(p.id))
+                  .map((p) => (
+                    <motion.span key={p.id} initial={{ scale: 0, y: 20 }} animate={{ scale: 1, y: 0 }}>
+                      <Avatar p={p} size={60} />
+                    </motion.span>
+                  ))}
+              </div>
+            </div>
+            {eligible.some((p) => !voted.has(p.id)) && (
+              <div className="waiting-group dim">
+                <span className="waiting-label">עוד לא</span>
+                <div className="waiting-faces">
+                  {eligible
+                    .filter((p) => !voted.has(p.id))
+                    .map((p) => (
+                      <Avatar key={p.id} p={p} size={52} />
+                    ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+        {!open && r.status !== "resolved" && <div className="tv-banner">⏳ סופרים קולות…</div>}
+        {phase === "suspense" && <div className="tv-banner pulse">והנבחר הוא…</div>}
+        {counted && <div className="tv-banner">{r.lines.majority ?? r.lines.voted}</div>}
+      </footer>
+
+      <AnimatePresence>
+        {phase === "voted" && chosen.length > 0 && (
+          <Spotlight
+            key="voted"
+            kind="shot"
+            title={r.refunded ? "🥃 כולם שותים!" : chosen.length > 1 ? "🗳️ תיקו!" : "🗳️ נבחר!"}
+            people={chosen}
+            line={r.lines.voted}
+            sub={r.refunded ? undefined : r.title}
+            task="לשתות שוט 🥃"
+          />
         )}
       </AnimatePresence>
     </div>

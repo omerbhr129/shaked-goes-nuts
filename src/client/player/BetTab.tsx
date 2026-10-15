@@ -1,11 +1,12 @@
 import { AnimatePresence, motion } from "motion/react";
 import { type ReactNode, useEffect, useState } from "react";
-import type { ClientView, PlayerPub, RoundPub } from "../../shared/types";
+import type { ClientView, GroomCard, PlayerPub, RoundPub } from "../../shared/types";
+import { CARDS } from "../../shared/catalog";
 import { LETTERS, cls, fmt, mmss, potOf, projectedPayout, ranked } from "../lib";
 import { type Game, useServerNow } from "../net";
 import { sfx } from "../sound";
 import { RodeoItay } from "../rodeo";
-import { Avatar, Change, Coin, Money, Spark, toast } from "../ui";
+import { Avatar, Change, Coin, Money, Spark, ask, burst, toast } from "../ui";
 
 export function BetTab({ game, view, me }: { game: Game; view: ClientView; me: PlayerPub }) {
   const round = view.pub.round;
@@ -18,6 +19,7 @@ export function BetTab({ game, view, me }: { game: Game; view: ClientView; me: P
   if (round) {
     if (drawing) featured = <DrawCard />;
     else if (round.kind === "quiz") featured = <QuizCard key={round.id} game={game} view={view} me={me} round={round} now={now} open={open} />;
+    else if (round.kind === "vote") featured = <VoteCard key={round.id} game={game} view={view} me={me} round={round} now={now} open={open} />;
     else if (open) featured = <BetForm key={round.id} game={game} view={view} me={me} round={round} now={now} />;
     else if (round.status === "resolved") featured = <Resolved view={view} me={me} round={round} />;
     else featured = <Locked view={view} me={me} round={round} />;
@@ -26,6 +28,7 @@ export function BetTab({ game, view, me }: { game: Game; view: ClientView; me: P
   return (
     <section className="stack">
       {featured ?? <Idle hasNight={night.length > 0} />}
+      {me.isGroom && <GroomCards game={game} view={view} me={me} open={open} />}
       {night.length > 0 && <NightSection game={game} view={view} me={me} night={night} now={now} />}
       {!round && <MyStock view={view} me={me} />}
     </section>
@@ -78,7 +81,8 @@ function QuestionCard({ round, children, label }: { round: RoundPub; children: R
   return (
     <div className="qcard felt">
       <div className="qcard-top">
-        <span className="qcard-num">{label ?? `סיבוב ${round.number}`}</span>
+        <span className={cls("qcard-num", round.final && "final")}>{label ?? (round.final ? "🏁 סיבוב הגמר" : `סיבוב ${round.number}`)}</span>
+        {round.mult > 1 && <span className="mult-chip">💥 כפול</span>}
         <span className="pot-chip">
           בקופה <Money n={potOf(round)} size={15} />
         </span>
@@ -105,7 +109,7 @@ function Countdown({ round, now }: { round: RoundPub; now: number }) {
   return (
     <div className={cls("countdown", urgent && "urgent")} role="timer">
       <div className="countdown-row">
-        <span>{round.kind === "quiz" ? "הזמן לענות נגמר בעוד" : "ההימורים נסגרים בעוד"}</span>
+        <span>{round.kind === "quiz" ? "הזמן לענות נגמר בעוד" : round.kind === "vote" ? "ההצבעה נסגרת בעוד" : "ההימורים נסגרים בעוד"}</span>
         <span className="num countdown-time">{mmss(left)}</span>
       </div>
       <div className="countdown-bar">
@@ -122,7 +126,8 @@ function BetForm({ game, view, me, round, now, compact }: { game: Game; view: Cl
   const myBet = view.me!.bets[round.id] ?? null;
   const cap = round.kind === "night" ? view.pub.settings.nightCap : 0;
   const nightRoom = cap > 0 ? cap - (view.me!.nightStaked - (myBet?.amount ?? 0)) : Infinity;
-  const max = Math.min(round.maxBet, view.me!.available + (myBet?.amount ?? 0), nightRoom);
+  // the final: everything you have can go on the table
+  const max = Math.min(round.final ? Infinity : round.maxBet, view.me!.available + (myBet?.amount ?? 0), nightRoom);
   const min = Math.min(round.minBet, max);
   const clamp = (n: number) => Math.max(min, Math.min(max, Math.round(n)));
   const [optionId, setOptionId] = useState<string | null>(myBet?.optionId ?? null);
@@ -264,7 +269,7 @@ function BetForm({ game, view, me, round, now, compact }: { game: Game; view: Cl
                   sfx.chip();
                 }}
               >
-                מקס׳
+                {round.final ? "💰 הכל!" : "מקס׳"}
               </button>
             </div>
             <p className="amount-hint">
@@ -273,6 +278,8 @@ function BetForm({ game, view, me, round, now, compact }: { game: Game; view: Cl
             </p>
           </div>
 
+          {round.final && <p className="final-line">🏁 הכל או כלום: אפשר לשים את כל השקדים, ומי שצודק לוקח כפול.</p>}
+          {round.mult > 1 && <p className="final-line">💥 הסיבוב הזה כפול: מי שצודק מרוויח כפול.</p>}
           <p className="payout-line">
             🤫 אף אחד לא רואה על מה הימרתם עד שהזמן נגמר. מי שצודק מתחלק בכל הקופה, לפי הסכום שהימר.
           </p>
@@ -441,6 +448,162 @@ function QuizCard({ game, view, me, round, now, open }: { game: Game; view: Clie
                     : "טעות. שוט! 🥃"
                   : "השאלה הזאת מאחורינו."}
         </p>
+      )}
+    </div>
+  );
+}
+
+/* ---------- "who's most likely to": everyone votes ---------- */
+
+function VoteCard({ game, view, me, round, now, open }: { game: Game; view: ClientView; me: PlayerPub; round: RoundPub; now: number; open: boolean }) {
+  const mine = view.me!.bets[round.id];
+  const [busy, setBusy] = useState(false);
+  const players = view.pub.players;
+  const resolved = round.status === "resolved";
+  const chosen = resolved && round.losers.includes(me.id);
+  const gain = round.results?.find((x) => x.playerId === me.id)?.delta ?? 0;
+  const counts = new Map<string, number>();
+  for (const b of round.bets ?? []) counts.set(b.optionId, (counts.get(b.optionId) ?? 0) + 1);
+
+  const vote = async (optionId: string) => {
+    if (!open || busy) return;
+    setBusy(true);
+    try {
+      await game.act("bet", { roundId: round.id, optionId, amount: 0 });
+      sfx.chip();
+      navigator.vibrate?.(20);
+    } catch (e) {
+      toast((e as Error).message, "err");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="qcard quiz vote felt">
+      <div className="qcard-top">
+        <span className="quiz-tag">🗳️ הצבעה</span>
+        {round.mult > 1 && <span className="mult-chip">💥 כפול</span>}
+        <span className="pot-chip">
+          כמו הרוב <Money n={round.reward * (round.mult || 1)} size={15} />
+        </span>
+      </div>
+      <h2 className="qcard-title">{round.title}</h2>
+      {open && round.closesAt && <Countdown round={round} now={now} />}
+      <div className="vote-grid" role="radiogroup" aria-label="על מי מצביעים?">
+        {round.options.map((o) => {
+          const p = o.playerId ? players.find((x) => x.id === o.playerId) : undefined;
+          const self = o.playerId === me.id;
+          const top = resolved && !!o.playerId && round.losers.includes(o.playerId);
+          return (
+            <button
+              key={o.id}
+              type="button"
+              role="radio"
+              aria-checked={mine?.optionId === o.id}
+              disabled={!open || busy || self}
+              className={cls("vote-opt", mine?.optionId === o.id && "on", top && "top")}
+              onClick={() => vote(o.id)}
+            >
+              {p && <Avatar p={p} size={52} />}
+              <span className="vote-name">{self ? "אתה" : o.label}</span>
+              {!open && round.bets && <b className="vote-n">{counts.get(o.id) ?? 0}</b>}
+            </button>
+          );
+        })}
+      </div>
+      <p className={cls("quiz-status", gain > 0 && "up", chosen && "down")}>
+        {open
+          ? mine
+            ? "הקול שלך נקלט 🤫 אפשר לשנות עד שהזמן נגמר."
+            : `מי שמקבל הכי הרבה קולות שותה. הצבעת כמו הרוב? ${fmt(round.reward * (round.mult || 1))} שקדים.`
+          : !resolved
+            ? "סופרים קולות…"
+            : round.refunded
+              ? "אף אחד לא הצביע. כולם שותים 🥃"
+              : chosen
+                ? "נבחרת! שוט 🥃"
+                : gain > 0
+                  ? `הצבעת כמו הרוב! +${fmt(gain)}`
+                  : mine
+                    ? "הרוב חשב אחרת."
+                    : "לא הצבעת הפעם."}
+      </p>
+    </div>
+  );
+}
+
+/* ---------- the groom's golden cards ---------- */
+
+function GroomCards({ game, view, me, open }: { game: Game; view: ClientView; me: PlayerPub; open: boolean }) {
+  const used = view.pub.cards ?? { veto: false, double: false, drink: false };
+  const r = view.pub.round;
+  const [picking, setPicking] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const keys = Object.keys(CARDS) as GroomCard[];
+  if (keys.every((k) => used[k])) return null;
+  const myBet = r ? view.me!.bets[r.id] : undefined;
+  const live = !!r && r.kind === "challenge" && (r.status === "open" || r.status === "closed");
+  const ready: Record<GroomCard, string | null> = {
+    veto: live ? null : "כשיש אתגר פתוח",
+    double: live && open && myBet && !myBet.double ? null : "אחרי שהימרת על אתגר פתוח",
+    drink: null,
+  };
+
+  const play = async (card: GroomCard, target?: string) => {
+    const info = CARDS[card];
+    const who = target ? view.pub.players.find((p) => p.id === target)?.name : null;
+    const ok = await ask({
+      title: `${info.emoji} לשלוף את ״${info.name}״${who ? ` על ${who}` : ""}?`,
+      body: `${info.text} כל קלף עובד פעם אחת בלילה, וכל הטלוויזיה תדע.`,
+      ok: "לשלוף!",
+    });
+    if (!ok) return;
+    setBusy(true);
+    try {
+      await game.act("groomCard", { card, target });
+      sfx.fanfare();
+      burst("win");
+      toast("🃏 הקלף נשלף! תסתכל על הטלוויזיה", "ok");
+      setPicking(false);
+    } catch (e) {
+      toast((e as Error).message, "err");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="gold-cards felt">
+      <h2>🃏 קלפי הזהב של החתן</h2>
+      <p className="muted">רק לך יש אותם. כל קלף עובד פעם אחת בלילה.</p>
+      <div className="gc-row">
+        {keys.map((k) => (
+          <button
+            key={k}
+            type="button"
+            className={cls("gcard", used[k] && "used", picking && k === "drink" && "on")}
+            disabled={used[k] || busy || !!ready[k]}
+            onClick={() => (k === "drink" ? setPicking(!picking) : play(k))}
+          >
+            <span className="gcard-emoji" aria-hidden="true" dir="ltr">
+              {CARDS[k].emoji}
+            </span>
+            <b>{CARDS[k].name}</b>
+            <small>{used[k] ? "כבר נשלף" : (ready[k] ?? CARDS[k].text)}</small>
+          </button>
+        ))}
+      </div>
+      {picking && (
+        <div className="player-chips gc-pick" role="group" aria-label="מי שותה?">
+          {view.pub.players
+            .filter((p) => p.id !== me.id)
+            .map((p) => (
+              <button key={p.id} type="button" className="pchip" disabled={busy} onClick={() => play("drink", p.id)}>
+                <Avatar p={p} size={24} /> {p.name}
+              </button>
+            ))}
+        </div>
       )}
     </div>
   );

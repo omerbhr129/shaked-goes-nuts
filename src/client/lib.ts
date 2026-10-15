@@ -104,7 +104,10 @@ export function projectedPayout(r: RoundPub, optionId: string, amount: number, m
   const sameOpt = mine && mine.optionId === optionId ? mine.amount : 0;
   const optTotal = (r.stats.find((s) => s.optionId === optionId)?.total ?? 0) - sameOpt + amount;
   if (optTotal <= 0) return 0;
-  return Math.floor((amount / optTotal) * (r.staked - prev + amount + r.bonus));
+  const back = Math.floor((amount / optTotal) * (r.staked - prev + amount + r.bonus));
+  // the wheel's double, the final and the groom's card multiply the profit, not the stake
+  const m = (r.mult || 1) * (r.final ? 2 : 1) * (mine?.double ? 2 : 1);
+  return amount + (back - amount) * m;
 }
 
 export const fmtX = (m: number | null) => (m === null ? "—" : `×${m >= 10 ? Math.round(m) : m.toFixed(1)}`);

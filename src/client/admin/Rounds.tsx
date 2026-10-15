@@ -24,11 +24,21 @@ export function RoundsTab({ game, view, run }: { game: Game; view: ClientView; r
       <div className="rounds-col stack">
       {!busyElsewhere && <DrawBar game={game} view={view} run={run} left={left} />}
       {!busyElsewhere && <QuickDuel view={view} run={run} />}
-      {live && (live.kind === "quiz" ? <LiveQuiz game={game} view={view} run={run} /> : <LiveRound game={game} view={view} run={run} />)}
+      {live &&
+        (live.kind === "quiz" ? (
+          <LiveQuiz game={game} view={view} run={run} />
+        ) : live.kind === "vote" ? (
+          <LiveVote game={game} view={view} run={run} />
+        ) : (
+          <LiveRound game={game} view={view} run={run} />
+        ))}
 
       <div className="section-head">
         <h2 className="section-title">🎲 אתגרים ושאלות</h2>
         <div className="row-actions">
+          <button type="button" className="btn btn-ghost btn-s" onClick={() => setEditing("vote")}>
+            + הצבעה
+          </button>
           <button type="button" className="btn btn-ghost btn-s" onClick={() => setEditing("quiz")}>
             + שאלת ידע
           </button>
@@ -48,9 +58,12 @@ export function RoundsTab({ game, view, run }: { game: Game; view: ClientView; r
               <div className="round-text">
                 <b>
                   {r.kind === "quiz" && <span className="quiz-tag">❓ שאלת ידע</span>}
+                  {r.kind === "vote" && <span className="quiz-tag">🗳️ הצבעה</span>}
                   {r.title}
                 </b>
-                <small>{r.kind === "quiz" ? quizLine(r) : r.options.map((o) => o.label).join(" / ")}</small>
+                <small>
+                  {r.kind === "quiz" ? quizLine(r) : r.kind === "vote" ? "כולם מצביעים. מי שנבחר שותה, מי שהצביע כמו הרוב מרוויח" : r.options.map((o) => o.label).join(" / ")}
+                </small>
               </div>
               <span className={cls("status-tag", r.status)}>{STATUS[r.status]}</span>
             </div>
@@ -128,7 +141,9 @@ export function RoundsTab({ game, view, run }: { game: Game; view: ClientView; r
       <OpenSheet round={opening} onClose={() => setOpening(null)} run={run} />
       <ResolveSheet round={resolving} bets={view.admin!.bets} onClose={() => setResolving(null)} run={run} />
       <Sheet open={!!editing} onClose={() => setEditing(null)} title={typeof editing === "string" ? NEW_TITLE[editing] : "עריכה"} wide>
-        {editing && (
+        {editing && (typeof editing === "string" ? editing : editing.kind) === "vote" ? (
+          <VoteForm key={typeof editing === "string" ? editing : editing.id} value={typeof editing === "string" ? null : editing} game={game} onDone={() => setEditing(null)} />
+        ) : editing && (
           <RoundForm
             key={typeof editing === "string" ? editing : editing.id}
             value={typeof editing === "string" ? null : editing}
@@ -143,11 +158,14 @@ export function RoundsTab({ game, view, run }: { game: Game; view: ClientView; r
   );
 }
 
+const BIG_NEWS = new Set(["king", "streak", "broke", "reveal", "card"]);
+
 /** How long the TV plays a result for: the same steps as tv/Screens.tsx. */
 function resultMs(r: RoundPub) {
   const L = r.lines ?? {};
+  if (r.kind === "vote") return VOTE_MS;
   if (r.kind === "quiz") return 1500 + 2700 + (L.fast ? 6500 : 0) + (L.slow ? 7000 : r.losers.length ? 9500 : 0);
-  return 1750 + 3200 + (L.duel ? 7000 : 0) + (L.win ? 6500 : 0) + (L.lose ? 8500 : 0);
+  return (r.final ? 3500 : 1750) + 3200 + (L.duel ? 7000 : 0) + (L.win ? 6500 : 0) + (L.lose ? 8500 : 0);
 }
 
 /** גלגל הבלגן: challenges, questions and surprises on one wheel. Never locked: while the TV still plays the last result, a tap queues the spin. */
@@ -155,11 +173,13 @@ function DrawBar({ game, view, run, left }: { game: Game; view: ClientView; run:
   const r = view.pub.round;
   const draw = view.pub.draw;
   const now = useServerNow(game, true, 500);
-  const busyUntil = Math.max(r?.status === "resolved" && r.resolvedAt ? r.resolvedAt + resultMs(r) : 0, draw?.surprise ? draw.at + 17_000 : 0);
+  // a new king, a streak or someone going broke right after the result: the TV shows those too
+  const after = r?.status === "resolved" && r.resolvedAt ? view.pub.feed.filter((e) => BIG_NEWS.has(e.kind) && e.at >= r.resolvedAt! - 500).length : 0;
+  const busyUntil = Math.max(r?.status === "resolved" && r.resolvedAt ? r.resolvedAt + resultMs(r) + after * 9000 : 0, draw?.surprise ? draw.at + 17_000 : 0);
   const wait = Math.ceil((busyUntil - now) / 1000);
   const [queued, setQueued] = useState<string | null>(null);
   const spin = async (kind: string) => {
-    const res = (await run("drawRound", { kind })) as { title?: string } | undefined;
+    const res = (await run("drawRound", kind === "final" ? { kind: "challenge", final: true } : { kind })) as { title?: string } | undefined;
     if (res?.title) toast(`🎡 יצא: ${res.title}`, "ok", 4000);
   };
   useEffect(() => {
@@ -181,6 +201,7 @@ function DrawBar({ game, view, run, left }: { game: Game; view: ClientView; run:
         </button>
       )}
       {!queued && wait > 0 && <small className="muted">הטלוויזיה מסיימת את התוצאה ({wait}). אפשר ללחוץ, הגלגל יחכה לה</small>}
+      {view.pub.doubleNext && <div className="double-chip">💥 הסיבוב הבא כפול!</div>}
       <div className="row-actions">
         <button type="button" className="btn btn-ghost btn-s" disabled={!!queued || !left("challenge")} onClick={() => press("challenge")}>
           רק אתגר <small>({left("challenge")})</small>
@@ -188,7 +209,27 @@ function DrawBar({ game, view, run, left }: { game: Game; view: ClientView; run:
         <button type="button" className="btn btn-ghost btn-s" disabled={!!queued || !left("quiz")} onClick={() => press("quiz")}>
           רק שאלה <small>({left("quiz")})</small>
         </button>
+        <button type="button" className="btn btn-ghost btn-s" disabled={!!queued || !left("vote")} onClick={() => press("vote")}>
+          רק הצבעה <small>({left("vote")})</small>
+        </button>
       </div>
+      <button
+        type="button"
+        className="btn btn-danger btn-s final-btn"
+        disabled={!!queued || !left("challenge")}
+        onClick={async () => {
+          if (
+            await ask({
+              title: "🏁 סיבוב הגמר?",
+              body: "הגלגל בוחר אתגר אחרון. כל אחד יכול להמר על כל השקדים שלו, ומי שצודק לוקח כפול. אחרי זה: טקס הפרסים.",
+              ok: "🏁 יאללה, גמר",
+            })
+          )
+            press("final");
+        }}
+      >
+        🏁 סיבוב הגמר: הכל או כלום
+      </button>
     </div>
   );
 }
@@ -198,6 +239,7 @@ function QuickDuel({ view, run }: { view: ClientView; run: Run }) {
   const [game, setGame] = useState("pingpong");
   const [a, setA] = useState<string | null>(null);
   const [b, setB] = useState<string | null>(null);
+  const [final, setFinal] = useState(false);
   const name = (id: string | null) => view.pub.players.find((p) => p.id === id)?.name ?? "";
   const pick = (id: string) => {
     if (a === id) setA(null);
@@ -222,14 +264,19 @@ function QuickDuel({ view, run }: { view: ClientView; run: Run }) {
           </button>
         ))}
       </div>
+      <label className="check">
+        <input type="checkbox" checked={final} onChange={(e) => setFinal(e.target.checked)} />
+        <span>🏁 זה סיבוב הגמר (הכל או כלום, הזוכים לוקחים כפול)</span>
+      </label>
       <button
         type="button"
         className="btn btn-gold"
         disabled={!a || !b}
         onClick={async () => {
-          if (await run("quickDuel", { game, a, b }, "הדו-קרב נפתח להימורים")) {
+          if (await run("quickDuel", { game, a, b, final }, final ? "🏁 סיבוב הגמר נפתח" : "הדו-קרב נפתח להימורים")) {
             setA(null);
             setB(null);
+            setFinal(false);
           }
         }}
       >
@@ -239,7 +286,45 @@ function QuickDuel({ view, run }: { view: ClientView; run: Run }) {
   );
 }
 
-const NEW_TITLE: Record<RoundKind, string> = { challenge: "אתגר חדש", quiz: "שאלת ידע חדשה", night: "הימור לילה חדש" };
+const NEW_TITLE: Record<RoundKind, string> = { challenge: "אתגר חדש", quiz: "שאלת ידע חדשה", night: "הימור לילה חדש", vote: "הצבעה חדשה" };
+
+/** How long the TV plays a vote's count (the same steps as tv/Screens.tsx). */
+const VOTE_MS = 1500 + 4500 + 7500;
+
+/** A vote only needs the question: every player is an option. */
+function VoteForm({ value, game, onDone }: { value: RoundRec | null; game: Game; onDone: () => void }) {
+  const [title, setTitle] = useState(value?.title ?? "מי הכי סביר ש");
+  const [seconds, setSeconds] = useState(value?.seconds ?? 40);
+  const [busy, setBusy] = useState(false);
+  const save = async () => {
+    setBusy(true);
+    try {
+      await game.act("saveRound", { round: { id: value?.id, kind: "vote", emoji: "🗳️", title, note: value?.note ?? "", seconds, reward: value?.reward ?? 100 } });
+      toast("נשמר", "ok");
+      onDone();
+    } catch (e) {
+      toast((e as Error).message, "err", 5000);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="stack">
+      <label className="field">
+        <span>השאלה</span>
+        <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="מי הכי סביר ש…" maxLength={160} />
+      </label>
+      <label className="field">
+        <span>כמה שניות להצביע</span>
+        <input type="number" inputMode="numeric" min={10} max={300} value={seconds} onChange={(e) => setSeconds(Number(e.target.value))} />
+      </label>
+      <p className="muted">כל השחקנים הם האפשרויות. מי שמקבל הכי הרבה קולות שותה, ומי שהצביע כמו הרוב מקבל 100 שקדים.</p>
+      <button type="button" className="btn btn-gold" disabled={busy || title.trim().length < 4} onClick={save}>
+        שמירה
+      </button>
+    </div>
+  );
+}
 
 /** For the list: the answers, and whether the right one is already known. */
 function quizLine(r: RoundRec) {
@@ -399,6 +484,8 @@ function LiveRound({ game, view, run }: { game: Game; view: ClientView; run: Run
     <section className={cls("live felt", open ? "is-open" : r.status)}>
       <div className="live-head">
         <span className="live-badge">{open ? "פתוח להימורים" : r.status === "resolved" ? "הוכרע" : "ההימורים סגורים"}</span>
+        {r.final && <span className="live-badge final">🏁 גמר</span>}
+        {r.mult > 1 && <span className="live-badge">💥 כפול</span>}
         <span className="live-pot">
           בקופה <Money n={potOf(r)} size={15} />
         </span>
@@ -452,7 +539,7 @@ function LiveRound({ game, view, run }: { game: Game; view: ClientView; run: Run
       )}
       <div className="live-actions">
         {open && bets.length === 0 && (
-          <button type="button" className="btn btn-ghost" onClick={() => run("drawRound", { kind: "challenge", redraw: true }, "הוגרל אתגר אחר")}>
+          <button type="button" className="btn btn-ghost" onClick={() => run("drawRound", { kind: "challenge", redraw: true, final: r.final }, "הוגרל אתגר אחר")}>
             🔄 להגריל אחר
           </button>
         )}
@@ -500,6 +587,90 @@ function LiveRound({ game, view, run }: { game: Game; view: ClientView; run: Run
           <WheelButtons run={run} />
         </div>
       )}
+    </section>
+  );
+}
+
+/** A vote counts itself when everyone voted or the time is up. The host can still correct who drinks. */
+function LiveVote({ game, view, run }: { game: Game; view: ClientView; run: Run }) {
+  const r: RoundPub = view.pub.round!;
+  const now = useServerNow(game, r.status === "open");
+  const open = r.status === "open" && (r.closesAt === null || now < r.closesAt);
+  const votes = view.admin!.bets.filter((b) => b.roundId === r.id);
+  const people = Object.fromEntries(view.pub.players.map((p) => [p.id, p])) as Record<string, PlayerPub>;
+  const missing = view.pub.players.filter((p) => p.claimed && !votes.some((b) => b.playerId === p.id));
+  return (
+    <section className={cls("live felt", open ? "is-open" : r.status)}>
+      <div className="live-head">
+        <span className="live-badge">{open ? "🗳️ מצביעים" : r.status === "resolved" ? "נספר" : "סופרים"}</span>
+        {r.mult > 1 && <span className="live-pot">💥 כפול</span>}
+        {open && r.closesAt && <span className="live-timer num">{mmss(r.closesAt - now)}</span>}
+      </div>
+      <h3 className="live-title">
+        {r.emoji} {r.title}
+      </h3>
+      {open ? (
+        <p className="muted">
+          🤫 הקולות סודיים עד הסוף. הצביעו {votes.length}.{missing.length > 0 && ` עוד לא: ${missing.map((p) => p.name).join(", ")}.`} כשכולם מצביעים
+          או שהזמן נגמר, זה נספר לבד.
+        </p>
+      ) : (
+        <div className="live-opts">
+          {r.options.map((o) => {
+            const vs = votes.filter((b) => b.optionId === o.id);
+            const chosen = !!o.playerId && r.losers.includes(o.playerId);
+            return (
+              <div key={o.id} className={cls("live-opt", chosen && "win")}>
+                <div className="live-opt-head">
+                  <b>
+                    {chosen && "🥃 "}
+                    {o.label}
+                  </b>
+                  <span className="muted">{vs.length} קולות</span>
+                </div>
+                {vs.length > 0 && <small className="muted">{vs.map((b) => people[b.playerId]?.name).join(", ")}</small>}
+                {r.status === "resolved" && !chosen && vs.length > 0 && (
+                  <button type="button" className="btn btn-ghost btn-s" onClick={() => run("resolveRound", { roundId: r.id, optionId: o.id }, "תוקן")}>
+                    תיקון: הוא נבחר
+                  </button>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+      <div className="live-actions">
+        {open && votes.length === 0 && (
+          <button type="button" className="btn btn-ghost" onClick={() => run("drawRound", { kind: "vote", redraw: true }, "הוגרלה הצבעה אחרת")}>
+            🔄 להגריל אחרת
+          </button>
+        )}
+        {open && (
+          <button type="button" className="btn btn-gold" onClick={() => run("closeRound", { roundId: r.id }, "הקולות נספרו")}>
+            🗳️ לספור עכשיו
+          </button>
+        )}
+        {open && (
+          <button type="button" className="btn btn-ghost" onClick={() => run("extendRound", { roundId: r.id, seconds: 15 }, "נוספו 15 שניות")}>
+            +15 שניות
+          </button>
+        )}
+        {r.status === "resolved" && (
+          <button type="button" className="btn btn-gold" onClick={() => run("setTv", { mode: "board" }, "הבורסה בטלוויזיה")}>
+            📈 הבורסה בטלוויזיה
+          </button>
+        )}
+        <button
+          type="button"
+          className="btn btn-danger"
+          onClick={async () => {
+            if (await ask({ title: "לבטל את ההצבעה?", body: "הקולות והשקדים מההצבעה יימחקו והיא תחזור לרשימה.", ok: "ביטול ההצבעה", danger: true }))
+              await run("cancelRound", { roundId: r.id }, "ההצבעה בוטלה");
+          }}
+        >
+          ביטול ההצבעה
+        </button>
+      </div>
     </section>
   );
 }
