@@ -52,6 +52,7 @@ function useLastActivity(view: ClientView, game: Game) {
     view.pub.tv.mode,
     r?.id,
     r?.status,
+    r?.resolvedAt,
     r?.bettors.length,
     view.pub.feed[view.pub.feed.length - 1]?.id,
     view.pub.shouts[view.pub.shouts.length - 1]?.id,

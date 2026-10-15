@@ -255,6 +255,8 @@ function round(kind: RoundKind, seed: RoundSeed, i: number): RoundRec {
     game: seed[5] ?? null,
     mult: 1,
     final: false,
+    crown: null,
+    phase: null,
   };
 }
 

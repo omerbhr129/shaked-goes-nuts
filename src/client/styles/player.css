@@ -1947,3 +1947,122 @@
     animation: none;
   }
 }
+
+/* ---------- the photo contest ---------- */
+
+.photo-mine {
+  justify-self: center;
+  width: 60%;
+  aspect-ratio: 1;
+  object-fit: cover;
+  border: 6px solid #fff8e6;
+  border-radius: 10px;
+  rotate: -2deg;
+}
+
+.photo-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.photo-opt {
+  display: grid;
+  gap: 4px;
+  padding: 6px;
+  border: 0;
+  border-radius: 14px;
+  font: inherit;
+  font-weight: 700;
+  color: var(--almond);
+  background: rgba(0, 0, 0, 0.25);
+  box-shadow: inset 0 0 0 1px var(--line-soft);
+  cursor: pointer;
+}
+
+.photo-opt img {
+  width: 100%;
+  aspect-ratio: 1;
+  object-fit: cover;
+  border-radius: 10px;
+}
+
+.photo-opt.on {
+  background: rgba(233, 185, 73, 0.2);
+  box-shadow: inset 0 0 0 3px var(--gold);
+}
+
+.photo-opt.won {
+  box-shadow: inset 0 0 0 3px var(--gold-hi);
+  background: rgba(233, 185, 73, 0.3);
+}
+
+.photo-opt:disabled {
+  cursor: default;
+}
+
+/* ---------- the night, summed up ---------- */
+
+.summary {
+  display: grid;
+  gap: 12px;
+  padding: 18px 16px;
+  border-radius: 18px;
+  box-shadow: inset 0 0 0 2px var(--gold);
+}
+
+.summary h2 {
+  margin: 0;
+  color: var(--gold-hi);
+}
+
+.summary-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  font-weight: 800;
+}
+
+.summary-rank {
+  font-size: 1.15rem;
+}
+
+.summary-prize {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 12px;
+  font-weight: 700;
+  line-height: 1.4;
+  color: #1c1206;
+  background: linear-gradient(170deg, #fff1c4, var(--gold));
+}
+
+.summary-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.summary-tile {
+  display: grid;
+  justify-items: center;
+  gap: 2px;
+  padding: 10px 6px;
+  border-radius: 12px;
+  text-align: center;
+  background: rgba(0, 0, 0, 0.25);
+}
+
+.summary-tile span {
+  font-size: 1.4rem;
+}
+
+.summary-tile b {
+  font-size: 1.15rem;
+}
+
+.summary-tile small {
+  font-size: 0.8rem;
+  color: var(--almond-dim);
+}

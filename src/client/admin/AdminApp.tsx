@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ClientView, PlayerPub, TvMode } from "../../shared/types";
-import { SOUNDS } from "../../shared/catalog";
+import { RULES, SOUNDS } from "../../shared/catalog";
 import { awardSteps } from "../awards";
 import { cls, fmt, useMedia } from "../lib";
 import { creds, type Game, useGame } from "../net";
@@ -309,6 +309,7 @@ function TvTab({ view, run, wide }: { view: ClientView; run: Run; wide: boolean 
   const [peek, setPeek] = useState(false);
   const modes: [TvMode, string, string][] = [
     ["lobby", "🎰 מסך פתיחה", "הלוגו, תעודת המניה של איתי וקוד QR להצטרפות"],
+    ["rules", "📖 איך משחקים", `${RULES.length} שקפים עם הקריין, לתחילת הערב. מעבירים מכאן`],
     ["round", "🎲 הסיבוב הנוכחי", "האתגר או שאלת הידע: השאלה, הקופה והתוצאה"],
     ["board", "📈 הבורסה", "פודיום, מי המלך ומי השקד המר, וגרף לכל אחד"],
     ["night", "🌙 הימורי הלילה", "כל הקופות והיחסים של הימורי הלילה"],
@@ -356,6 +357,29 @@ function TvTab({ view, run, wide }: { view: ClientView; run: Run; wide: boolean 
           </button>
         ))}
       </div>
+
+      {view.pub.tv.mode === "rules" && (
+        <div className="awards-ctl felt">
+          <h3>📖 איך משחקים</h3>
+          <p>
+            שקף {Math.min(view.pub.tv.step, RULES.length - 1) + 1} מתוך {RULES.length}: <b>{RULES[Math.min(view.pub.tv.step, RULES.length - 1)].title}</b>
+          </p>
+          <div className="row-actions">
+            <button type="button" className="btn btn-ghost" disabled={view.pub.tv.step === 0} onClick={() => run("tvStep", { delta: -1, max: RULES.length - 1 })}>
+              ◀ הקודם
+            </button>
+            {view.pub.tv.step < RULES.length - 1 ? (
+              <button type="button" className="btn btn-gold" onClick={() => run("tvStep", { delta: 1, max: RULES.length - 1 })}>
+                הבא: {RULES[view.pub.tv.step + 1].title}
+              </button>
+            ) : (
+              <button type="button" className="btn btn-gold" onClick={() => run("setTv", { mode: "lobby" }, "חזרה למסך הפתיחה")}>
+                סיימנו, למסך הפתיחה
+              </button>
+            )}
+          </div>
+        </div>
+      )}
 
       {view.pub.tv.mode === "awards" && (
         <div className="awards-ctl felt">

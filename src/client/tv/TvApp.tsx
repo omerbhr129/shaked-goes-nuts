@@ -9,7 +9,7 @@ import { Avatar, Marquee, Ticker, burst } from "../ui";
 import { CatchClock, ChatLog, FxLayer, MusicDirector, MysterySpot, ShoutsLayer, SoundFx } from "./Live";
 import { IdleShow } from "./Idle";
 import { BettingVibes, BigWheel, Spotlight, holdTv, spinLength, tvBusy } from "./Moments";
-import { AwardsScreen, BoardScreen, Lobby, NightScreen, QuizScreen, RevealScreen, RoundScreen, VoteScreen, WinnerScreen } from "./Screens";
+import { AwardsScreen, BoardScreen, Lobby, NightScreen, PhotoScreen, QuizScreen, RevealScreen, RoundScreen, RulesScreen, VoteScreen, WinnerScreen } from "./Screens";
 
 // the host screen embeds a silent copy of the TV as a preview
 const PREVIEW = new URLSearchParams(location.search).has("preview");
@@ -90,6 +90,8 @@ export function TvApp() {
                   <QuizScreen view={view} game={game} />
                 ) : view.pub.round?.kind === "vote" ? (
                   <VoteScreen view={view} game={game} />
+                ) : view.pub.round?.kind === "photo" ? (
+                  <PhotoScreen view={view} game={game} />
                 ) : (
                   <RoundScreen view={view} game={game} />
                 ))}
@@ -98,6 +100,7 @@ export function TvApp() {
               {mode === "missions" && <RevealScreen view={view} />}
               {mode === "awards" && <AwardsScreen view={view} />}
               {mode === "winner" && <WinnerScreen view={view} />}
+              {mode === "rules" && <RulesScreen view={view} />}
             </motion.div>
           </AnimatePresence>
           <Ticker players={view.pub.players} start={view.pub.settings.startBalance} />
@@ -207,7 +210,7 @@ function RoundExtras({ view, game, avoidLeft }: { view: ClientView; game: Game; 
   const betting = live && !drawing && view.pub.tv.mode === "round" && (r!.closesAt === null || now < r!.closesAt);
   return (
     <>
-      <BettingVibes active={betting && r!.kind !== "vote"} avoidLeft={avoidLeft} />
+      <BettingVibes active={betting && r!.kind !== "vote" && r!.kind !== "photo"} avoidLeft={avoidLeft} />
       <AnimatePresence>{drawing && draw && <BigWheel key={draw.at} draw={draw} players={view.pub.players} feed={view.pub.feed} />}</AnimatePresence>
     </>
   );
@@ -277,7 +280,14 @@ function NewsBanner({ feed, players, skipShots, offset }: { feed: FeedEvent[]; p
   useEffect(() => {
     if (!next) return;
     prefetchLine(`feed:${next.id}`);
-    const t = window.setTimeout(() => setReady(next.id), Math.max(0, tvBusy.until - Date.now()));
+    // something else (the drinking wheel) may take the screen while this waits: check again before showing
+    let t = 0;
+    const when = () => {
+      const wait = tvBusy.until - Date.now();
+      if (wait > 0) t = window.setTimeout(when, wait + 50);
+      else setReady(next.id);
+    };
+    when();
     return () => window.clearTimeout(t);
   }, [next?.id]); // eslint-disable-line react-hooks/exhaustive-deps
   const current = next && ready === next.id ? next : undefined;

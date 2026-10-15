@@ -2,6 +2,7 @@ import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { ClientView, PlayerPub, PublicBet, RoundPub } from "../../shared/types";
 import { type AwardStep, awardSteps } from "../awards";
+import { RULES } from "../../shared/catalog";
 import { LETTERS, cls, fmt, fmtX, kingAndLast, mmss, multiplier, photoOf, potOf, ranked, signed } from "../lib";
 import { type Game, useServerNow } from "../net";
 import { QR } from "../qr";
@@ -209,6 +210,7 @@ export function RoundScreen({ view, game }: { view: ClientView; game: Game }) {
   useEffect(() => {
     const was = prevStatus.current;
     prevStatus.current = r.status;
+    if (r.status === "resolved") setUnveil(false);
     if (was !== "open" || r.status !== "closed") return;
     setUnveil(true);
     sfx.drumroll(1.1);
@@ -324,7 +326,7 @@ export function RoundScreen({ view, game }: { view: ClientView; game: Game }) {
           <Spotlight
             key="duel"
             kind="champ"
-            title={`🏆 ${champ.name} ניצח!`}
+            title={r.crown ? (champ.id === r.crown ? "👑 המלך שמר על הכתר!" : "⚔️ המלך נפל!") : `🏆 ${champ.name} ניצח!`}
             people={[champ]}
             img={(p) => `/photos/ai/champ/${r.game ?? "champ"}/${p.id}.jpg`}
             line={r.lines.duel}
@@ -509,10 +511,10 @@ export function QuizScreen({ view, game }: { view: ClientView; game: Game }) {
         <div className="tv-pot">
           <span className="tv-pot-label">תשובה נכונה</span>
           <span className="tv-pot-amount">
-            <Led value={r.reward} />
+            <Led value={r.reward * (r.mult || 1)} />
             <Coin size={34} />
           </span>
-          <span className="tv-pot-note">הכי מהיר עוד {fmt(r.bonus)} · טועים שותים 🥃</span>
+          <span className="tv-pot-note">הכי מהיר עוד {fmt(r.bonus * (r.mult || 1))} · טועים שותים 🥃</span>
         </div>
         <RoundClock r={r} open={open} now={now} suspense={phase === "suspense"} />
       </header>
@@ -794,6 +796,180 @@ export function VoteScreen({ view, game }: { view: ClientView; game: Game }) {
           />
         )}
       </AnimatePresence>
+    </div>
+  );
+}
+
+/* ---------------- the photo contest ---------------- */
+
+export function PhotoScreen({ view, game }: { view: ClientView; game: Game }) {
+  const r = view.pub.round!;
+  const now = useServerNow(game, r.status === "open", 250);
+  const collecting = r.status === "open" && r.phase === "collect";
+  const voting = r.status === "open" && r.phase === "vote" && (r.closesAt === null || now < r.closesAt);
+  const people = useMemo(() => byId(view.pub.players), [view.pub.players]);
+  const resolvedKey = r.status === "resolved" ? `${r.id}:${r.resolvedAt}` : null;
+  const [phase, setPhase] = useState<"suspense" | "count" | "winner" | null>(null);
+
+  // the count: drum roll → the votes on the pictures → the winning picture, full screen
+  useLayoutEffect(() => {
+    if (!resolvedKey || !r.resolvedAt) return;
+    if (Date.now() + game.offset - r.resolvedAt > 8000) {
+      setPhase("count");
+      return;
+    }
+    if (r.lines.photo) prefetchLine(`round:${r.id}:photo`);
+    return runSteps<"suspense" | "count" | "winner">(
+      [
+        ["suspense", 1500],
+        ["count", 4000],
+        ["winner", 7000],
+      ],
+      (ph) => {
+        setPhase(ph);
+        if (ph === "suspense") sfx.drumroll(1.4);
+        if (ph === "count") sfx.win();
+        if (ph === "winner") {
+          sfx.fanfare();
+          burst("big");
+          speak(`round:${r.id}:photo`);
+        }
+      },
+      () => setPhase("count"),
+    );
+  }, [resolvedKey]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const counted = r.status === "resolved" && phase !== "suspense";
+  const votes = r.bets ?? [];
+  const wonBy = new Set((r.results ?? []).filter((x) => x.delta > 0).map((x) => x.playerId));
+  const winners = r.options.filter((o) => o.playerId && wonBy.has(o.playerId));
+  const eligible = view.pub.players.filter((p) => p.claimed);
+  const sent = new Set(r.options.map((o) => o.playerId));
+  const voted = new Set(r.bettors);
+  const done = (p: PlayerPub) => (collecting ? sent.has(p.id) : voted.has(p.id));
+
+  return (
+    <div className="tvquiz tvphoto">
+      <header className="tvround-head">
+        <span className="tvround-num">
+          📸 תחרות התמונות
+          <MultBadge r={r} />
+        </span>
+        <div className="tv-pot">
+          <span className="tv-pot-label">התמונה המנצחת מקבלת</span>
+          <span className="tv-pot-amount">
+            <Led value={r.reward * (r.mult || 1)} />
+            <Coin size={34} />
+          </span>
+          <span className="tv-pot-note">{collecting ? "מעלים עכשיו בטלפון" : voting ? "מצביעים בטלפון 🤫" : "\u00a0"}</span>
+        </div>
+        <RoundClock r={r} open={(collecting || voting) && !!r.closesAt} now={now} suspense={phase === "suspense"} />
+      </header>
+      <h1 className="tvround-title">{r.title}</h1>
+
+      <div className="photo-wall">
+        {r.options.length === 0 && <div className="photo-empty">עוד לא הגיעו תמונות… 📸</div>}
+        {r.options.map((o, i) => {
+          const won = counted && winners.includes(o);
+          return (
+            <motion.figure
+              key={o.id}
+              layout
+              className={cls("photo-card", won && "won", counted && !won && "dim")}
+              initial={{ scale: 0, rotate: -12 }}
+              animate={{ scale: 1, rotate: i % 2 ? 2.5 : -2.5 }}
+              transition={{ type: "spring", stiffness: 200, damping: 14 }}
+            >
+              {o.photo && <img src={o.photo} alt="" />}
+              <figcaption>{counted ? (people[o.playerId ?? ""]?.name ?? o.label) : `#${i + 1}`}</figcaption>
+              {counted && <b className="photo-n num">{votes.filter((b) => b.optionId === o.id).length}</b>}
+            </motion.figure>
+          );
+        })}
+      </div>
+
+      <footer className="tvround-foot">
+        {(collecting || voting) && (
+          <div className="waiting">
+            <div className="waiting-group">
+              <span className="waiting-label">{collecting ? "כבר שלחו 📸" : "כבר הצביעו 🤫"}</span>
+              <div className="waiting-faces">
+                {eligible.filter(done).map((p) => (
+                  <motion.span key={p.id} initial={{ scale: 0, y: 20 }} animate={{ scale: 1, y: 0 }}>
+                    <Avatar p={p} size={56} />
+                  </motion.span>
+                ))}
+              </div>
+            </div>
+            {eligible.some((p) => !done(p)) && (
+              <div className="waiting-group dim">
+                <span className="waiting-label">עוד לא</span>
+                <div className="waiting-faces">
+                  {eligible
+                    .filter((p) => !done(p))
+                    .map((p) => (
+                      <Avatar key={p.id} p={p} size={48} />
+                    ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+        {r.status === "open" && !collecting && !voting && <div className="tv-banner">⏳ סופרים קולות…</div>}
+        {phase === "suspense" && <div className="tv-banner pulse">והתמונה המנצחת היא…</div>}
+        {counted && <div className="tv-banner">{r.lines.photo}</div>}
+      </footer>
+
+      <AnimatePresence>
+        {phase === "winner" && winners.length > 0 && (
+          <Spotlight
+            key="photo"
+            kind="win"
+            title="📸 התמונה המנצחת!"
+            people={winners.map((o) => people[o.playerId ?? ""]).filter((p): p is PlayerPub => !!p)}
+            img={(p) => r.options.find((o) => o.playerId === p.id)?.photo ?? photoOf(p)}
+            line={r.lines.photo}
+            amount={winners.length === 1 ? r.reward * (r.mult || 1) : undefined}
+          />
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
+/* ---------------- how to play: slides the host clicks through ---------------- */
+
+export function RulesScreen({ view }: { view: ClientView }) {
+  const step = Math.max(0, Math.min(view.pub.tv.step, RULES.length - 1));
+  const rule = RULES[step];
+  useEffect(() => {
+    sfx.whoosh();
+    speak(`rules:${step}`);
+  }, [step]);
+  return (
+    <div className="tvrules">
+      <Marquee size="s" />
+      <AnimatePresence mode="wait">
+        <motion.div
+          key={step}
+          className="rule"
+          initial={{ opacity: 0, x: -90 }}
+          animate={{ opacity: 1, x: 0 }}
+          exit={{ opacity: 0, x: 90 }}
+          transition={{ type: "spring", stiffness: 170, damping: 20 }}
+        >
+          <motion.div className="rule-emoji" initial={{ scale: 0.3, rotate: -20 }} animate={{ scale: 1, rotate: 0 }} transition={{ type: "spring", stiffness: 220, damping: 11, delay: 0.1 }}>
+            {rule.emoji}
+          </motion.div>
+          <h1 className="rule-title">{rule.title}</h1>
+          <p className="rule-text">{rule.text}</p>
+        </motion.div>
+      </AnimatePresence>
+      <div className="rule-dots" aria-hidden="true">
+        {RULES.map((_, i) => (
+          <i key={i} className={cls(i === step && "on", i < step && "done")} />
+        ))}
+      </div>
     </div>
   );
 }

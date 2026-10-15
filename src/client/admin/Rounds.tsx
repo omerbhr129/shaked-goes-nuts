@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { Bet, ClientView, PlayerPub, RoundKind, RoundOption, RoundPub, RoundRec, RoundStatus } from "../../shared/types";
 import { GAMES } from "../../shared/catalog";
 import { LETTERS, cls, fmt, fmtX, mmss, multiplier, potOf, resizeImage } from "../lib";
@@ -29,6 +29,8 @@ export function RoundsTab({ game, view, run }: { game: Game; view: ClientView; r
           <LiveQuiz game={game} view={view} run={run} />
         ) : live.kind === "vote" ? (
           <LiveVote game={game} view={view} run={run} />
+        ) : live.kind === "photo" ? (
+          <LiveContest game={game} view={view} run={run} />
         ) : (
           <LiveRound game={game} view={view} run={run} />
         ))}
@@ -163,7 +165,7 @@ const BIG_NEWS = new Set(["king", "streak", "broke", "reveal", "card"]);
 /** How long the TV plays a result for: the same steps as tv/Screens.tsx. */
 function resultMs(r: RoundPub) {
   const L = r.lines ?? {};
-  if (r.kind === "vote") return VOTE_MS;
+  if (r.kind === "vote" || r.kind === "photo") return VOTE_MS;
   if (r.kind === "quiz") return 1500 + 2700 + (L.fast ? 6500 : 0) + (L.slow ? 7000 : r.losers.length ? 9500 : 0);
   return (r.final ? 3500 : 1750) + 3200 + (L.duel ? 7000 : 0) + (L.win ? 6500 : 0) + (L.lose ? 8500 : 0);
 }
@@ -175,12 +177,24 @@ function DrawBar({ game, view, run, left }: { game: Game; view: ClientView; run:
   const now = useServerNow(game, true, 500);
   // a new king, a streak or someone going broke right after the result: the TV shows those too
   const after = r?.status === "resolved" && r.resolvedAt ? view.pub.feed.filter((e) => BIG_NEWS.has(e.kind) && e.at >= r.resolvedAt! - 500).length : 0;
-  const busyUntil = Math.max(r?.status === "resolved" && r.resolvedAt ? r.resolvedAt + resultMs(r) + after * 9000 : 0, draw?.surprise ? draw.at + 17_000 : 0);
+  const resultEnd = r?.status === "resolved" && r.resolvedAt ? r.resolvedAt + resultMs(r) + after * 9000 : 0;
+  // the drinking wheel waits for the result, then takes 16 seconds
+  const w = view.pub.wheel;
+  const wheelEnd = w ? (r?.resolvedAt && w.at >= r.resolvedAt ? Math.max(w.at, resultEnd) : w.at) + 16_000 : 0;
+  const busyUntil = Math.max(resultEnd, wheelEnd, draw?.surprise ? draw.at + 17_000 : 0);
   const wait = Math.ceil((busyUntil - now) / 1000);
   const [queued, setQueued] = useState<string | null>(null);
+  const inFlight = useRef(false);
   const spin = async (kind: string) => {
-    const res = (await run("drawRound", kind === "final" ? { kind: "challenge", final: true } : { kind })) as { title?: string } | undefined;
-    if (res?.title) toast(`🎡 יצא: ${res.title}`, "ok", 4000);
+    // a double tap must not spin twice
+    if (inFlight.current) return;
+    inFlight.current = true;
+    try {
+      const res = (await run("drawRound", kind === "final" ? { kind: "challenge", final: true } : { kind })) as { title?: string } | undefined;
+      if (res?.title) toast(`🎡 יצא: ${res.title}`, "ok", 4000);
+    } finally {
+      window.setTimeout(() => (inFlight.current = false), 1500);
+    }
   };
   useEffect(() => {
     if (!queued || wait > 0) return;
@@ -192,9 +206,14 @@ function DrawBar({ game, view, run, left }: { game: Game; view: ClientView; run:
     <div className="draw-bar felt">
       <p>אתם מחליטים מתי, הגלגל מחליט מה. אתגרים, שאלות והפתעות, מול כולם בטלוויזיה.</p>
       {queued ? (
-        <button type="button" className="btn btn-gold btn-xl" onClick={() => setQueued(null)}>
-          ⏳ הגלגל יסתובב לבד בעוד {Math.max(wait, 0)} (הקישו לביטול)
-        </button>
+        <>
+          <button type="button" className="btn btn-gold btn-xl" disabled>
+            ⏳ הגלגל יסתובב לבד בעוד {Math.max(wait, 0)}
+          </button>
+          <button type="button" className="link-btn" onClick={() => setQueued(null)}>
+            ביטול הסיבוב האוטומטי
+          </button>
+        </>
       ) : (
         <button type="button" className="btn btn-gold btn-xl" onClick={() => press("any")}>
           🎡 לסובב את גלגל הבלגן
@@ -229,6 +248,9 @@ function DrawBar({ game, view, run, left }: { game: Game; view: ClientView; run:
         }}
       >
         🏁 סיבוב הגמר: הכל או כלום
+      </button>
+      <button type="button" className="btn btn-ghost btn-s final-btn" disabled={!!queued} onClick={() => run("openContest", {}, "📸 התחרות נפתחה: כולם מעלים תמונה")}>
+        📸 תחרות תמונות מביכות של איתי
       </button>
     </div>
   );
@@ -268,6 +290,7 @@ function QuickDuel({ view, run }: { view: ClientView; run: Run }) {
         <input type="checkbox" checked={final} onChange={(e) => setFinal(e.target.checked)} />
         <span>🏁 זה סיבוב הגמר (הכל או כלום, הזוכים לוקחים כפול)</span>
       </label>
+      <CrownDuel view={view} run={run} game={game} />
       <button
         type="button"
         className="btn btn-gold"
@@ -286,7 +309,104 @@ function QuickDuel({ view, run }: { view: ClientView; run: Run }) {
   );
 }
 
-const NEW_TITLE: Record<RoundKind, string> = { challenge: "אתגר חדש", quiz: "שאלת ידע חדשה", night: "הימור לילה חדש", vote: "הצבעה חדשה" };
+const NEW_TITLE: Record<RoundKind, string> = { challenge: "אתגר חדש", quiz: "שאלת ידע חדשה", night: "הימור לילה חדש", vote: "הצבעה חדשה", photo: "תחרות תמונות" };
+
+/** The king defends his crown against the last place; if he loses, he pays him. */
+function CrownDuel({ view, run, game }: { view: ClientView; run: Run; game: string }) {
+  const list = [...view.pub.players].filter((p) => p.claimed).sort((a, b) => b.balance - a.balance || a.name.localeCompare(b.name, "he"));
+  const king = list[0];
+  const last = list[list.length - 1];
+  if (!king || !last || king.id === last.id) return null;
+  return (
+    <button
+      type="button"
+      className="btn btn-ghost crown-btn"
+      onClick={async () => {
+        if (
+          await ask({
+            title: "⚔️ הקרב על הכתר?",
+            body: `${king.name} (המלך) נגד ${last.name} (המקום האחרון) ב${GAMES[game].name}. אם המלך מפסיד, הוא משלם 200 שקדים ל${last.name}. כולם מהמרים כרגיל.`,
+            ok: "⚔️ יאללה",
+          })
+        )
+          await run("quickDuel", { game, crown: true }, "⚔️ הקרב על הכתר נפתח");
+      }}
+    >
+      ⚔️ הקרב על הכתר: {king.name} נגד {last.name}
+    </button>
+  );
+}
+
+/** The photo contest: pictures come in, then everybody votes; it counts itself. */
+function LiveContest({ game, view, run }: { game: Game; view: ClientView; run: Run }) {
+  const r: RoundPub = view.pub.round!;
+  const now = useServerNow(game, r.status === "open");
+  const collecting = r.status === "open" && r.phase === "collect";
+  const voting = r.status === "open" && r.phase === "vote";
+  const votes = view.admin!.bets.filter((b) => b.roundId === r.id);
+  const missing = view.pub.players.filter((p) => p.claimed && !r.options.some((o) => o.playerId === p.id));
+  return (
+    <section className={cls("live felt", r.status === "open" ? "is-open" : r.status)}>
+      <div className="live-head">
+        <span className="live-badge">{collecting ? "📸 אוספים תמונות" : voting ? "🗳️ מצביעים" : r.status === "resolved" ? "נספר" : "סופרים"}</span>
+        {r.status === "open" && r.closesAt && <span className="live-timer num">{mmss(Math.max(0, r.closesAt - now))}</span>}
+      </div>
+      <h3 className="live-title">📸 {r.title}</h3>
+      {collecting && (
+        <p className="muted">
+          נשלחו {r.options.length} תמונות.{missing.length > 0 && ` עוד לא: ${missing.map((p) => p.name).join(", ")}.`} כשהזמן נגמר ההצבעה מתחילה לבד (צריך לפחות 2).
+        </p>
+      )}
+      {r.options.length > 0 && (
+        <div className="contest-thumbs">
+          {r.options.map((o) => (
+            <figure key={o.id}>
+              {o.photo && <img src={o.photo} alt="" />}
+              <figcaption>
+                {o.label}
+                {!collecting && ` · ${votes.filter((b) => b.optionId === o.id).length}`}
+              </figcaption>
+            </figure>
+          ))}
+        </div>
+      )}
+      {voting && <p className="muted">הצביעו {votes.length}. כשכולם מצביעים או שהזמן נגמר, זה נספר לבד.</p>}
+      {r.status === "resolved" && <p>{r.lines.photo}</p>}
+      <div className="live-actions">
+        {collecting && (
+          <button type="button" className="btn btn-gold" disabled={r.options.length < 2} onClick={() => run("contestVote", { roundId: r.id }, "ההצבעה התחילה")}>
+            🗳️ להתחיל להצביע עכשיו
+          </button>
+        )}
+        {voting && (
+          <button type="button" className="btn btn-gold" onClick={() => run("closeRound", { roundId: r.id }, "הקולות נספרו")}>
+            🗳️ לספור עכשיו
+          </button>
+        )}
+        {r.status === "open" && (
+          <button type="button" className="btn btn-ghost" onClick={() => run("extendRound", { roundId: r.id, seconds: 30 }, "נוספו 30 שניות")}>
+            +30 שניות
+          </button>
+        )}
+        {r.status === "resolved" && (
+          <button type="button" className="btn btn-gold" onClick={() => run("setTv", { mode: "board" }, "הבורסה בטלוויזיה")}>
+            📈 הבורסה בטלוויזיה
+          </button>
+        )}
+        <button
+          type="button"
+          className="btn btn-danger"
+          onClick={async () => {
+            if (await ask({ title: "לבטל את התחרות?", body: "התמונות, הקולות והפרס יימחקו.", ok: "ביטול התחרות", danger: true }))
+              await run("cancelRound", { roundId: r.id }, "התחרות בוטלה");
+          }}
+        >
+          ביטול התחרות
+        </button>
+      </div>
+    </section>
+  );
+}
 
 /** How long the TV plays a vote's count (the same steps as tv/Screens.tsx). */
 const VOTE_MS = 1500 + 4500 + 7500;

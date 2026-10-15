@@ -194,7 +194,7 @@ function Envelope({ m, game, view }: { m: Mission; game: Game; view: ClientView 
                   <button type="button" className="btn btn-gold" onClick={claim} disabled={busy}>
                     ✅ ביצעתי!
                   </button>
-                  <button type="button" className="link-btn" onClick={swap} disabled={busy || view.me!.available < 50}>
+                  <button type="button" className="link-btn" onClick={swap} disabled={busy || view.me!.available < 150}>
                     🔄 בלתי אפשרית? להחליף ב־50 שקדים
                   </button>
                 </>

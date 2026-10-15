@@ -101,6 +101,8 @@ export function normalize(s: GameState): GameState {
     r.game ??= null;
     r.mult ??= 1;
     r.final ??= false;
+    r.crown ??= null;
+    r.phase ??= null;
   }
   for (const m of s.missions) {
     m.caughtBy ??= null;
@@ -200,6 +202,7 @@ const LINES = {
   veto: ["החתן הטיל וטו, יא זונות! האתגר מבוטל וכל השקדים חוזרים", "וטו של החתן! איתי אמר לא, וזהו. מי שלא מרוצה, שיתחתן בעצמו"],
   doubled: ["החתן הכפיל את ההימור! אם איתי צודק, הוא לוקח כפול, יא זונות", "קלף זהב! איתי הכפיל. או שהוא גאון, או שהוא שיכור"],
   drink: ["קלף זהב! החתן החליט: {n} שותה עכשיו, יא שרמוטה. בלי ויכוחים", "איתי שלף קלף זהב: {n}, למטה! שוט מול כולם"],
+  photo: ["{n} צילם את התמונה הכי מביכה של הלילה! 200 שקדים, יא פפראצי", "וואלה {n}, איתי לא ישכח לך את התמונה הזאת", "{n} ניצח! איתי, תבקש ממנו למחוק את זה לפני החתונה"],
 };
 
 const andList = (names: string[]) => (names.length > 1 ? `${names.slice(0, -1).join(", ")} ו${names[names.length - 1]}` : (names[0] ?? ""));
@@ -212,6 +215,10 @@ const LATE_TASKS = [POOL_TASK, "🌊 עמידה מתחת למפל של הברי�
 const LATE_AFTER = 8;
 const BROKE_AT = 100;
 const SWAP_PRICE = 50;
+/** the crown duel: what the king pays if he loses */
+const CROWN_STAKE = 200;
+/** the photo contest: what the winning picture earns */
+const CONTEST_PRIZE = 200;
 const BROKE_TASKS = ["20 שכיבות סמיכה", "שוט לבחירת החתן", "לשיר לאיתי שיר אהבה מול כולם", "ריקוד סולו של 20 שניות על הדשא", "נאום תודה של 30 שניות לבנק המרכזי (איתי)", "לגימה ענקית מול כולם"];
 /** the wheel spins, lands, and shows what came up before betting opens */
 const DRAW_MS = 8000;
@@ -325,11 +332,47 @@ export function closeVote(s: GameState, r: RoundRec, now: number) {
   const { count, top } = tally(s, r);
   const win = top > 0 ? r.options.find((o) => count.get(o.id) === top) : undefined;
   if (win) return resolveWith(s, r, win, now);
+  if (r.kind === "photo") {
+    // nobody voted on the pictures: no winner, nobody drinks
+    Object.assign(r, { status: "resolved", winnerId: null, resolvedAt: now, refunded: true, losers: [], loserReason: null, lines: { photo: "אף אחד לא הצביע. התמונות נשארות לנצח 📸" } });
+    s.lastResolvedId = r.id;
+    return;
+  }
   r.losers = s.players.filter((p) => p.token && !r.noBet.includes(p.id)).map((p) => p.id);
   Object.assign(r, { status: "resolved", winnerId: null, resolvedAt: now, refunded: true, loserReason: "voted", lines: { voted: sample(LINES.noVotes) } });
   s.lastResolvedId = r.id;
   if (s.activeRoundId === r.id) s.tv = { mode: "round", at: now, step: 0 };
   if (r.losers.length) pushFeed(s, now, "shot", `🥃 ${r.lines.voted}`, r.losers, r.id);
+}
+
+/** The photo contest: the picture with the most votes earns the prize (all of them on a tie). */
+function settleContest(s: GameState, r: RoundRec, win: RoundOption, now: number) {
+  const { count, top } = tally(s, r);
+  const chosen = top > 0 && (count.get(win.id) ?? 0) === top ? r.options.filter((o) => (count.get(o.id) ?? 0) === top) : [win];
+  const prize = r.reward * payMult(r);
+  for (const o of chosen) if (o.playerId) s.ledger.push({ id: newId(), playerId: o.playerId, delta: prize, kind: "contest", ref: r.id, note: "📸 ניצח בתחרות התמונות", at: now });
+  Object.assign(r, { losers: [], loserReason: null, refunded: false });
+  r.lines = { photo: sample(LINES.photo).replaceAll("{n}", andList(chosen.map((o) => nameOf(s, o.playerId ?? "")))) };
+}
+
+/** Pictures are in: everybody votes, for 45 seconds. */
+function startContestVote(s: GameState, r: RoundRec, now: number) {
+  s.bets = s.bets.filter((b) => b.roundId !== r.id);
+  Object.assign(r, { phase: "vote", openedAt: now, closesAt: now + r.seconds * 1000 });
+}
+
+/** The crown duel: if the king loses, he pays the challenger. */
+function crownDuel(s: GameState, r: RoundRec, win: RoundOption, now: number) {
+  const king = r.crown!;
+  const challenger = r.options.find((o) => o.playerId && o.playerId !== king)?.playerId;
+  if (!challenger) return;
+  const k = nameOf(s, king);
+  const c = nameOf(s, challenger);
+  if (win.playerId === challenger) {
+    s.ledger.push({ id: newId(), playerId: king, delta: -CROWN_STAKE, kind: "crown", ref: r.id, note: `הפסיד את הכתר ל${c}`, at: now });
+    s.ledger.push({ id: newId(), playerId: challenger, delta: CROWN_STAKE, kind: "crown", ref: r.id, note: `הפיל את ${k} בקרב על הכתר`, at: now });
+    r.lines.duel = `המלך נפל, יא זונות! ${c} הפיל את ${k}, ולוקח ממנו ${CROWN_STAKE} שקדים`;
+  } else r.lines.duel = `${k} שמר על הכתר! ${c}, תחזור כשתגדל, יא נוב`;
 }
 
 /** Right calls in a row on challenges and questions, newest first. Rounds you sat out don't break it. */
@@ -347,6 +390,7 @@ function winsInARow(s: GameState, pid: ID) {
 
 /** Three right in a row (then five, seven...) gets the TV and a bonus from the bank. */
 function streaks(s: GameState, r: RoundRec, now: number) {
+  if (r.refunded) return;
   for (const pid of new Set(s.bets.filter((b) => b.roundId === r.id).map((b) => b.playerId))) {
     const k = winsInARow(s, pid);
     if (k < 3 || k % 2 === 0) continue;
@@ -414,7 +458,13 @@ export function tick(s: GameState, now: number): boolean {
   if (r && r.status === "open" && r.closesAt && now >= r.closesAt - 30) {
     if (r.kind === "quiz") closeQuiz(s, r, now);
     else if (r.kind === "vote") closeVote(s, r, now);
-    else r.status = "closed";
+    else if (r.kind === "photo") {
+      // collecting: vote once there are two pictures, otherwise wait for the host
+      if (r.phase === "collect") {
+        if (r.options.length >= 2) startContestVote(s, r, now);
+        else r.closesAt = null;
+      } else closeVote(s, r, now);
+    } else r.status = "closed";
     changed = true;
   }
   for (const m of dueMissions(s, now)) {
@@ -608,14 +658,18 @@ function settleQuiz(s: GameState, r: RoundRec, rightId: ID, now: number) {
 function resolveWith(s: GameState, r: RoundRec, win: RoundOption, now: number) {
   if (r.status === "open") r.closesAt = Math.min(r.closesAt ?? now, now);
   s.feed = s.feed.filter((e) => !(e.ref === r.id && (e.kind === "shot" || e.kind === "result" || e.kind === "streak")));
-  s.ledger = s.ledger.filter((e) => !(e.kind === "streak" && e.ref === r.id));
+  s.ledger = s.ledger.filter((e) => !((e.kind === "streak" || e.kind === "crown" || e.kind === "contest") && e.ref === r.id));
   if (r.kind === "quiz") {
     settleQuiz(s, r, win.id, now);
     quizLines(s, r);
   } else if (r.kind === "vote") settleVote(s, r, win, now);
+  else if (r.kind === "photo") settleContest(s, r, win, now);
   else {
     settle(s, r, win.id, now);
-    if (r.kind === "challenge") verdict(s, r, win.id);
+    if (r.kind === "challenge") {
+      verdict(s, r, win.id);
+      if (r.crown) crownDuel(s, r, win, now);
+    }
   }
   Object.assign(r, { status: "resolved", winnerId: win.id, resolvedAt: now });
   s.lastResolvedId = r.id;
@@ -738,7 +792,9 @@ const PLAYER: Record<string, Handler> = {
     if (!bettingOpen(r, c.now)) fail(r.kind === "quiz" ? "הזמן לענות נגמר" : "ההימורים כבר נסגרו");
     if (r.noBet.includes(pl.id)) fail(r.kind === "quiz" ? "על השאלה הזאת אתה לא עונה 😉" : "משתתפי האתגר לא מהמרים בסיבוב הזה");
     const opt = r.options.find((o) => o.id === c.p.optionId) ?? fail("האפשרות הזאת לא קיימת");
-    if (r.kind === "quiz" || r.kind === "vote") {
+    if (r.kind === "quiz" || r.kind === "vote" || r.kind === "photo") {
+      if (r.kind === "photo" && r.phase !== "vote") fail("עוד אוספים תמונות. ההצבעה תכף 📸");
+      if (r.kind === "photo" && opt.playerId === pl.id) fail("על התמונה של עצמך? לא 😉");
       if (r.kind === "vote" && opt.playerId === pl.id) fail("להצביע לעצמך? יפה, אבל לא 😉");
       const prev = s.bets.find((b) => b.roundId === r.id && b.playerId === pl.id);
       let ticket: number;
@@ -812,13 +868,24 @@ const PLAYER: Record<string, Handler> = {
     m.claimedAt = null;
   },
 
+  /** The photo contest: send (or replace) your picture while the pictures are being collected. */
+  contestPhoto(s, c) {
+    const pl = me(s, c);
+    const r = activeRound(s);
+    if (!r || r.kind !== "photo" || r.phase !== "collect" || r.status !== "open") fail("אין עכשיו תחרות תמונות");
+    const photo = media(c.p.photo) ?? fail("התמונה לא עלתה. נסו שוב");
+    const mine = r.options.find((o) => o.playerId === pl.id);
+    if (mine) mine.photo = photo;
+    else r.options.push({ id: pl.id, label: pl.name, playerId: pl.id, photo });
+  },
+
   /** Stuck with a mission that can't work? Swap it for another one from the pool, for a price. */
   swapMyMission(s, c) {
     const pl = me(s, c);
     const m = findMission(s, c.p.missionId);
     if (m.assignedTo !== pl.id) fail("המשימה הזאת לא שלך");
     if (m.status !== "open") fail("אפשר להחליף רק משימה שעוד לא סימנת");
-    if (available(s, pl.id) < SWAP_PRICE) fail(`החלפה עולה ${SWAP_PRICE} שקדים, ואין לך מספיק פנויים`);
+    if (available(s, pl.id) - SWAP_PRICE < BROKE_AT) fail(`החלפה עולה ${SWAP_PRICE} שקדים, ואחריה צריכים להישאר לך לפחות ${BROKE_AT}`);
     const free = s.missions.filter((x) => x.assignedTo === null && x.status === "open" && x.id !== m.id && fits(s, x, pl));
     if (!free.length) fail("אין משימות פנויות במאגר להחלפה");
     const same = free.filter((x) => x.reward === m.reward);
@@ -1006,6 +1073,8 @@ const ADMIN: Record<string, Handler> = {
       game: null,
       mult: 1,
       final: false,
+      crown: null,
+      phase: null,
     };
     s.rounds.push(r);
     return { id: r.id };
@@ -1057,6 +1126,7 @@ const ADMIN: Record<string, Handler> = {
 
   /** The host decides when, the pool decides what: a random challenge or quiz, opened after the TV's reel spins. */
   drawRound(s, { p, now }) {
+    if (!p.redraw && !p.pick && s.draw?.surprise && now - s.draw.at < 3000) fail("רגע, הגלגל כבר מסתובב 🎡");
     // the final only lands on a challenge
     const final = !!p.final;
     const mix = p.kind === "any" && !final;
@@ -1070,7 +1140,7 @@ const ADMIN: Record<string, Handler> = {
       resetRound(cur);
       skip = cur.id;
     }
-    const pool = s.rounds.filter((r) => (mix ? r.kind !== "night" : r.kind === kind) && r.status === "draft" && r.id !== skip);
+    const pool = s.rounds.filter((r) => (mix ? r.kind !== "night" : r.kind === kind) && r.status === "draft" && r.id !== skip && !r.id.startsWith("duel-") && !r.id.startsWith("photo-"));
     const forced = SURPRISES.find((x) => x.id === p.pick);
     if (!pool.length && !mix) fail(kind === "quiz" ? "נגמרו שאלות הידע במאגר" : kind === "vote" ? "נגמרו ההצבעות במאגר" : "נגמרו האתגרים במאגר");
     // the mixed wheel lands on a surprise now and then (always when the pool is empty)
@@ -1083,7 +1153,7 @@ const ADMIN: Record<string, Handler> = {
     // a few surprises always show on the mixed wheel, so it looks like anything can happen
     const extra = mix ? shuffle(SURPRISES.filter((x) => x !== surprise)).slice(0, 3).map(ofSurprise) : [];
     const others = shuffle([
-      ...s.rounds.filter((x) => (mix ? x.kind !== "night" : x.kind === kind) && x !== r).map(ofRound),
+      ...s.rounds.filter((x) => (mix ? x.kind !== "night" : x.kind === kind) && x !== r && !x.id.startsWith("duel-") && !x.id.startsWith("photo-")).map(ofRound),
       ...(mix ? SURPRISES.filter((x) => x !== surprise).map(ofSurprise) : []),
     ]);
     const seen = new Set([chosen.t]);
@@ -1123,8 +1193,11 @@ const ADMIN: Record<string, Handler> = {
   quickDuel(s, { p, now }) {
     const key = String(p.game);
     const g = GAMES[key] ?? fail("בחרו משחק");
-    const a = findPlayer(s, p.a);
-    const b = findPlayer(s, p.b);
+    // the crown duel: the king against the last place
+    const st = standings(s).filter((x) => s.players.some((y) => y.id === x.id && y.token));
+    if (p.crown && st.length < 2) fail("צריך לפחות שני שחקנים מחוברים");
+    const a = findPlayer(s, p.crown ? st[0].id : p.a);
+    const b = findPlayer(s, p.crown ? st[st.length - 1].id : p.b);
     if (a.id === b.id) fail("בחרו שני שחקנים שונים");
     const cur = activeRound(s);
     if (cur && (cur.status === "open" || cur.status === "closed")) fail(`הסיבוב ״${cur.title}״ עדיין פעיל. קודם הכריזו תוצאה או בטלו אותו`);
@@ -1133,8 +1206,8 @@ const ADMIN: Record<string, Handler> = {
       id: `duel-${newId()}`,
       kind: "challenge",
       emoji: g.emoji,
-      title: `${g.name}: ${a.name} נגד ${b.name}. מי ינצח?`,
-      note: g.note,
+      title: p.crown ? `⚔️ הקרב על הכתר: ${a.name} נגד ${b.name} ב${g.name}. מי ינצח?` : `${g.name}: ${a.name} נגד ${b.name}. מי ינצח?`,
+      note: p.crown ? `${g.note} המלך מפסיד? הוא משלם ${CROWN_STAKE} שקדים ל${b.name}.` : g.note,
       image: null,
       options: [
         { id: a.id, label: a.name, playerId: a.id },
@@ -1160,6 +1233,8 @@ const ADMIN: Record<string, Handler> = {
       game: key,
       mult: 1,
       final: false,
+      crown: p.crown ? a.id : null,
+      phase: null,
     };
     armRound(s, r, !!p.final);
     const firstNight = s.rounds.findIndex((x) => x.kind === "night");
@@ -1167,6 +1242,57 @@ const ADMIN: Record<string, Handler> = {
     s.activeRoundId = r.id;
     s.tv = { mode: "round", at: now, step: 0 };
     return { id: r.id };
+  },
+
+  /** Everyone sends the most embarrassing picture of the groom; then everyone votes. */
+  openContest(s, { p, now }) {
+    const cur = activeRound(s);
+    if (cur && (cur.status === "open" || cur.status === "closed")) fail(`הסיבוב ״${cur.title}״ עדיין פעיל. קודם הכריזו תוצאה או בטלו אותו`);
+    const seconds = int(p.seconds, 150, 30, 900);
+    const r: RoundRec = {
+      id: `photo-${newId()}`,
+      kind: "photo",
+      emoji: "📸",
+      title: "התמונה הכי מביכה של איתי מהערב",
+      note: `כל אחד מעלה תמונה אחת מהטלפון. אחר כך כולם מצביעים, והתמונה שמנצחת מקבלת ${CONTEST_PRIZE} שקדים.`,
+      image: null,
+      options: [],
+      minBet: 0,
+      maxBet: 0,
+      seconds: 45,
+      bonus: 0,
+      reward: CONTEST_PRIZE,
+      correctId: null,
+      noBet: [],
+      status: "open",
+      openedAt: now,
+      closesAt: now + seconds * 1000,
+      winnerId: null,
+      resolvedAt: null,
+      refunded: false,
+      losers: [],
+      loserReason: null,
+      lines: {},
+      task: null,
+      game: null,
+      mult: 1,
+      final: false,
+      crown: null,
+      phase: "collect",
+    };
+    const firstNight = s.rounds.findIndex((x) => x.kind === "night");
+    s.rounds.splice(firstNight < 0 ? s.rounds.length : firstNight, 0, r);
+    armRound(s, r);
+    s.activeRoundId = r.id;
+    s.tv = { mode: "round", at: now, step: 0 };
+    return { id: r.id };
+  },
+
+  contestVote(s, { p, now }) {
+    const r = findRound(s, p.roundId);
+    if (r.kind !== "photo" || r.phase !== "collect" || r.status !== "open") fail("אין תחרות שאוספת תמונות");
+    if (r.options.length < 2) fail("צריך לפחות 2 תמונות כדי להצביע");
+    startContestVote(s, r, now);
   },
 
   openAllNight(s, { now }) {
@@ -1184,7 +1310,7 @@ const ADMIN: Record<string, Handler> = {
   extendRound(s, { p, now }) {
     const r = activeRound(s);
     if (!r || r.id !== p.roundId || (r.status !== "open" && r.status !== "closed")) fail("הסיבוב לא פעיל");
-    if (r.status === "closed" || (r.closesAt !== null && r.closesAt <= now)) fail("ההימורים כבר נחשפו לכולם, אז אי אפשר לפתוח שוב. אפשר לבטל את הסיבוב ולפתוח מחדש");
+    if (r.status === "closed" || (r.closesAt !== null && r.closesAt <= now && r.phase !== "collect")) fail("ההימורים כבר נחשפו לכולם, אז אי אפשר לפתוח שוב. אפשר לבטל את הסיבוב ולפתוח מחדש");
     const add = int(p.seconds, 30, 5, 600) * 1000;
     const base = r.status === "open" && r.closesAt && r.closesAt > now ? r.closesAt : now;
     r.status = "open";
@@ -1196,6 +1322,10 @@ const ADMIN: Record<string, Handler> = {
     if (r.status !== "open") fail("ההימורים כבר סגורים");
     if (r.kind === "quiz") return void closeQuiz(s, r, now);
     if (r.kind === "vote") return void closeVote(s, r, now);
+    if (r.kind === "photo") {
+      if (r.phase !== "vote") fail("קודם מתחילים להצביע על התמונות");
+      return void closeVote(s, r, now);
+    }
     r.status = "closed";
     r.closesAt = Math.min(r.closesAt ?? now, now);
   },
@@ -1217,17 +1347,18 @@ const ADMIN: Record<string, Handler> = {
       s.activeRoundId = r.id;
       s.tv = { mode: "round", at: now, step: 0 };
     }
-    s.ledger = s.ledger.filter((e) => !((e.kind === "bet" || e.kind === "quiz" || e.kind === "vote" || e.kind === "streak") && e.ref === r.id));
+    s.ledger = s.ledger.filter((e) => !((e.kind === "bet" || e.kind === "quiz" || e.kind === "vote" || e.kind === "streak" || e.kind === "crown" || e.kind === "contest") && e.ref === r.id));
     s.feed = s.feed.filter((e) => !(e.ref === r.id && (e.kind === "shot" || e.kind === "streak")));
     Object.assign(r, { status: "closed", winnerId: null, resolvedAt: null, refunded: false, losers: [], loserReason: null, lines: {}, task: null });
   },
 
   cancelRound(s, { p, now }) {
     const r = findRound(s, p.roundId);
-    s.ledger = s.ledger.filter((e) => !((e.kind === "bet" || e.kind === "quiz" || e.kind === "vote" || e.kind === "streak") && e.ref === r.id));
+    s.ledger = s.ledger.filter((e) => !((e.kind === "bet" || e.kind === "quiz" || e.kind === "vote" || e.kind === "streak" || e.kind === "crown" || e.kind === "contest") && e.ref === r.id));
     s.bets = s.bets.filter((b) => b.roundId !== r.id);
     disarmRound(s, r);
     resetRound(r);
+    if (r.kind === "photo") s.rounds = s.rounds.filter((x) => x !== r);
     if (s.lastResolvedId === r.id) s.lastResolvedId = null;
     if (s.activeRoundId === r.id) {
       s.activeRoundId = null;
@@ -1420,7 +1551,7 @@ const ADMIN: Record<string, Handler> = {
 
   setTv(s, { p, now }) {
     const mode = p.mode as TvMode;
-    if (!["lobby", "round", "board", "night", "missions", "awards", "winner"].includes(mode)) fail("מצב תצוגה לא מוכר");
+    if (!["lobby", "round", "board", "night", "missions", "awards", "winner", "rules"].includes(mode)) fail("מצב תצוגה לא מוכר");
     s.tv = { mode, at: now, step: 0 };
   },
 
@@ -1453,7 +1584,7 @@ const ADMIN: Record<string, Handler> = {
     Object.assign(s, { bets: [], ledger: [], accusations: [], bailouts: [], feed: [], shouts: [], wheel: null, draw: null, seq: 0, activeRoundId: null, lastResolvedId: null });
     Object.assign(s, { doubleNext: false, king: null, kingAt: 0, cards: { veto: false, double: false, drink: false } });
     for (const pl of s.players) Object.assign(pl, { hat: null, item: null });
-    s.rounds = s.rounds.filter((r) => !r.id.startsWith("duel-"));
+    s.rounds = s.rounds.filter((r) => !r.id.startsWith("duel-") && !r.id.startsWith("photo-"));
     for (const r of s.rounds)
       resetRound(r);
     for (const m of s.missions) {

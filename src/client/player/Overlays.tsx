@@ -47,7 +47,8 @@ function FlashCard({ flash, onClose }: { flash: Flash; onClose: () => void }) {
 export function ResultOverlay({ view, meId }: { view: ClientView; meId: string }) {
   const [flash, setFlash] = useFlash();
   const rounds: RoundPub[] = [...(view.pub.round ? [view.pub.round] : []), ...view.pub.night];
-  const involved = (r: RoundPub) => !!view.me?.bets[r.id] || ((r.kind === "quiz" || r.kind === "vote") && r.losers.includes(meId));
+  const involved = (r: RoundPub) =>
+    !!view.me?.bets[r.id] || ((r.kind === "quiz" || r.kind === "vote") && r.losers.includes(meId)) || (r.kind === "photo" && r.options.some((o) => o.playerId === meId));
   const due = rounds.find((r) => r.status === "resolved" && involved(r) && !lsGet(`sgn.seen.${r.id}.${r.resolvedAt}.${meId}`));
   const key = due ? `sgn.seen.${due.id}.${due.resolvedAt}.${meId}` : null;
 
@@ -55,6 +56,16 @@ export function ResultOverlay({ view, meId }: { view: ClientView; meId: string }
     if (!key || !due) return;
     lsSet(key, "1");
     const label = due.options.find((o) => o.id === due.winnerId)?.label ?? "";
+    if (due.kind === "photo") {
+      const gain = due.results?.find((x) => x.playerId === meId)?.delta ?? 0;
+      if (gain > 0)
+        window.setTimeout(() => {
+          setFlash({ kind: "win", amount: gain, title: "📸 התמונה שלך ניצחה!", sub: due.lines.photo ?? "" });
+          sfx.win();
+          burst("coins");
+        }, 5500);
+      return;
+    }
     if (due.kind === "vote") {
       const gain = due.results?.find((x) => x.playerId === meId)?.delta ?? 0;
       // after the TV counts the votes
@@ -86,7 +97,7 @@ export function ResultOverlay({ view, meId }: { view: ClientView; meId: string }
           sfx.gotcha();
           navigator.vibrate?.([120, 60, 120, 60, 300]);
         } else if (won) {
-          const fastest = delta > due.reward;
+          const fastest = delta > due.reward * (due.mult || 1);
           setFlash({ kind: "win", amount: delta, title: fastest ? "⚡ הכי מהיר!" : "צדקת! 🧠", sub: fastest ? `צדקת והיית הראשון. תסתכל על הטלוויזיה 😎` : `התשובה: ״${label}״` });
           sfx.win();
           burst("coins");

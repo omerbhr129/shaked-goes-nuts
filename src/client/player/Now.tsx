@@ -23,13 +23,18 @@ function hintFor(view: ClientView, me: PlayerPub, now: number): Hint {
   if (r && r.status === "open") {
     if (r.openedAt && now < r.openedAt) return { icon: "🎡", text: "הגלגל מסתובב! תסתכלו על הטלוויזיה", tone: "wait" };
     const t = r.closesAt ? ` (${mmss(Math.max(0, r.closesAt - now))})` : "";
+    if (r.kind === "photo" && r.phase === "collect")
+      return r.options.some((o) => o.playerId === me.id)
+        ? { icon: "✅", text: `התמונה שלך בפנים. מחכים להצבעה${t}`, tone: "calm", tab: "bet" }
+        : { icon: "📸", text: `עכשיו: לשלוח תמונה מביכה של איתי!${t}`, tone: "go", tab: "bet" };
     if (r.noBet.includes(me.id)) return { icon: "💪", text: r.kind === "quiz" ? "על השאלה הזאת עונים בקול מול כולם" : "אתה בתוך האתגר. בהצלחה!", tone: "calm", tab: "bet" };
     if (!mine.bets[r.id]) {
       if (r.kind === "quiz") return { icon: "❓", text: `עכשיו: לענות מהר!${t}`, tone: "go", tab: "bet" };
       if (r.kind === "vote") return { icon: "🗳️", text: `עכשיו: להצביע!${t}`, tone: "go", tab: "bet" };
+      if (r.kind === "photo") return { icon: "🗳️", text: `עכשיו: להצביע על התמונה הכי מביכה!${t}`, tone: "go", tab: "bet" };
       return { icon: "🎲", text: `עכשיו: להמר!${t}`, tone: "go", tab: "bet" };
     }
-    const did = r.kind === "vote" ? "הצבעת" : r.kind === "quiz" ? "ענית" : "הימרת";
+    const did = r.kind === "vote" || r.kind === "photo" ? "הצבעת" : r.kind === "quiz" ? "ענית" : "הימרת";
     return { icon: "✅", text: `${did}. אפשר לשנות עד שהזמן נגמר${t}`, tone: "calm", tab: "bet" };
   }
   if (r && r.status === "closed") return { icon: "🔒", text: r.kind === "challenge" ? "ההימורים נסגרו. האתגר יוצא לדרך!" : "הזמן נגמר. התוצאה בטלוויזיה", tone: "wait" };
@@ -108,10 +113,37 @@ export function RoundPop({ game, view, me, go }: { game: Game; view: ClientView;
   }, [key]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => () => timers.current.forEach((t) => window.clearTimeout(t)), []);
 
-  const shown = !!r && pop === key;
+  const shown = !!r && !!key && pop === key;
   const inIt = !!r && r.noBet.includes(me.id);
-  const title = !r ? "" : inIt ? "💪 אתה באתגר!" : r.kind === "quiz" ? "❓ שאלה חדשה!" : r.kind === "vote" ? "🗳️ הצבעה חדשה!" : r.final ? "🏁 סיבוב הגמר!" : "🎲 סיבוב חדש!";
-  const cta = inIt ? "יאללה" : r?.kind === "quiz" ? "לענות עכשיו" : r?.kind === "vote" ? "להצביע עכשיו" : "להמר עכשיו";
+  const photo = r?.kind === "photo";
+  const title = !r
+    ? ""
+    : inIt
+      ? "💪 אתה באתגר!"
+      : photo
+        ? r.phase === "collect"
+          ? "📸 תחרות תמונות!"
+          : "🗳️ מצביעים על התמונות!"
+        : r.kind === "quiz"
+          ? "❓ שאלה חדשה!"
+          : r.kind === "vote"
+            ? "🗳️ הצבעה חדשה!"
+            : r.crown
+              ? "⚔️ הקרב על הכתר!"
+              : r.final
+                ? "🏁 סיבוב הגמר!"
+                : "🎲 סיבוב חדש!";
+  const cta = inIt
+    ? "יאללה"
+    : photo
+      ? r.phase === "collect"
+        ? "לשלוח תמונה"
+        : "להצביע עכשיו"
+      : r?.kind === "quiz"
+        ? "לענות עכשיו"
+        : r?.kind === "vote"
+          ? "להצביע עכשיו"
+          : "להמר עכשיו";
   return (
     <AnimatePresence>
       {shown && r && (

@@ -44,6 +44,8 @@ function roundPub(s: GameState, r: RoundRec, now: number): RoundPub {
     game: r.game,
     mult: r.mult,
     final: r.final,
+    crown: r.crown,
+    phase: r.phase,
     number: s.rounds.filter((x) => x.kind !== "night").indexOf(r) + 1,
     stats,
     staked,
@@ -51,7 +53,7 @@ function roundPub(s: GameState, r: RoundRec, now: number): RoundPub {
     bets: open ? null : bets.map((b) => ({ playerId: b.playerId, optionId: b.optionId, amount: b.amount })),
     results:
       r.status === "resolved"
-        ? s.ledger.filter((e) => (e.kind === "bet" || e.kind === "quiz") && e.ref === r.id).map((e) => ({ playerId: e.playerId, delta: e.delta }))
+        ? s.ledger.filter((e) => (e.kind === "bet" || e.kind === "quiz" || e.kind === "vote" || e.kind === "contest") && e.ref === r.id).map((e) => ({ playerId: e.playerId, delta: e.delta }))
         : null,
   };
 }

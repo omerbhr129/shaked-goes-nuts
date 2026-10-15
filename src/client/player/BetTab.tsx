@@ -1,8 +1,8 @@
 import { AnimatePresence, motion } from "motion/react";
-import { type ReactNode, useEffect, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import type { ClientView, GroomCard, PlayerPub, RoundPub } from "../../shared/types";
 import { CARDS } from "../../shared/catalog";
-import { LETTERS, cls, fmt, mmss, potOf, projectedPayout, ranked } from "../lib";
+import { LETTERS, cls, fmt, mmss, potOf, projectedPayout, ranked, resizeImage } from "../lib";
 import { type Game, useServerNow } from "../net";
 import { sfx } from "../sound";
 import { RodeoItay } from "../rodeo";
@@ -20,6 +20,7 @@ export function BetTab({ game, view, me }: { game: Game; view: ClientView; me: P
     if (drawing) featured = <DrawCard />;
     else if (round.kind === "quiz") featured = <QuizCard key={round.id} game={game} view={view} me={me} round={round} now={now} open={open} />;
     else if (round.kind === "vote") featured = <VoteCard key={round.id} game={game} view={view} me={me} round={round} now={now} open={open} />;
+    else if (round.kind === "photo") featured = <PhotoCard key={round.id} game={game} view={view} me={me} round={round} now={now} />;
     else if (open) featured = <BetForm key={round.id} game={game} view={view} me={me} round={round} now={now} />;
     else if (round.status === "resolved") featured = <Resolved view={view} me={me} round={round} />;
     else featured = <Locked view={view} me={me} round={round} />;
@@ -27,6 +28,7 @@ export function BetTab({ game, view, me }: { game: Game; view: ClientView; me: P
 
   return (
     <section className="stack">
+      {view.pub.tv.mode === "winner" && view.pub.stats && <NightSummary view={view} me={me} />}
       {featured ?? <Idle hasNight={night.length > 0} />}
       {me.isGroom && <GroomCards game={game} view={view} me={me} open={open} />}
       {night.length > 0 && <NightSection game={game} view={view} me={me} night={night} now={now} />}
@@ -109,7 +111,15 @@ function Countdown({ round, now }: { round: RoundPub; now: number }) {
   return (
     <div className={cls("countdown", urgent && "urgent")} role="timer">
       <div className="countdown-row">
-        <span>{round.kind === "quiz" ? "הזמן לענות נגמר בעוד" : round.kind === "vote" ? "ההצבעה נסגרת בעוד" : "ההימורים נסגרים בעוד"}</span>
+        <span>
+          {round.kind === "quiz"
+            ? "הזמן לענות נגמר בעוד"
+            : round.kind === "photo" && round.phase === "collect"
+              ? "שולחים תמונות עוד"
+              : round.kind === "vote" || round.kind === "photo"
+                ? "ההצבעה נסגרת בעוד"
+                : "ההימורים נסגרים בעוד"}
+        </span>
         <span className="num countdown-time">{mmss(left)}</span>
       </div>
       <div className="countdown-bar">
@@ -395,8 +405,9 @@ function QuizCard({ game, view, me, round, now, open }: { game: Game; view: Clie
     <div className="qcard quiz felt">
       <div className="qcard-top">
         <span className="quiz-tag">❓ שאלת ידע</span>
+        {round.mult > 1 && <span className="mult-chip">💥 כפול</span>}
         <span className="pot-chip">
-          תשובה נכונה <Money n={round.reward} size={15} />
+          תשובה נכונה <Money n={round.reward * (round.mult || 1)} size={15} />
         </span>
         <span className="qcard-emoji" aria-hidden="true">
           {round.emoji}
@@ -437,7 +448,7 @@ function QuizCard({ game, view, me, round, now, open }: { game: Game; view: Clie
           {open
             ? mine
               ? "נעול על התשובה שלך. אפשר לשנות עד שהזמן נגמר."
-              : `צודקים מקבלים ${fmt(round.reward)}, הכי מהיר עוד ${fmt(round.bonus)}. טועים שותים 🥃`
+              : `צודקים מקבלים ${fmt(round.reward * (round.mult || 1))}, הכי מהיר עוד ${fmt(round.bonus * (round.mult || 1))}. טועים שותים 🥃`
             : !resolved
               ? "הזמן נגמר. עוד רגע התשובה."
               : mineRight
@@ -529,6 +540,153 @@ function VoteCard({ game, view, me, round, now, open }: { game: Game; view: Clie
                     ? "הרוב חשב אחרת."
                     : "לא הצבעת הפעם."}
       </p>
+    </div>
+  );
+}
+
+/* ---------- the photo contest ---------- */
+
+function PhotoCard({ game, view, me, round: r, now }: { game: Game; view: ClientView; me: PlayerPub; round: RoundPub; now: number }) {
+  const collecting = r.status === "open" && r.phase === "collect";
+  const voting = r.status === "open" && r.phase === "vote" && (r.closesAt === null || now < r.closesAt);
+  const resolved = r.status === "resolved";
+  const mine = r.options.find((o) => o.playerId === me.id);
+  const myVote = view.me!.bets[r.id];
+  const gain = r.results?.find((x) => x.playerId === me.id)?.delta ?? 0;
+  const wonBy = new Set((r.results ?? []).filter((x) => x.delta > 0).map((x) => x.playerId));
+  const [busy, setBusy] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  const send = async (file?: File) => {
+    if (!file) return;
+    setBusy(true);
+    try {
+      const url = await game.upload(await resizeImage(file, 1280));
+      await game.act("contestPhoto", { photo: url });
+      sfx.pop();
+      toast("📸 התמונה בפנים! היא מופיעה בטלוויזיה", "ok");
+    } catch (e) {
+      toast((e as Error).message, "err");
+    } finally {
+      setBusy(false);
+      if (fileRef.current) fileRef.current.value = "";
+    }
+  };
+
+  const vote = async (optionId: string) => {
+    if (!voting || busy) return;
+    setBusy(true);
+    try {
+      await game.act("bet", { roundId: r.id, optionId, amount: 0 });
+      sfx.chip();
+      navigator.vibrate?.(20);
+    } catch (e) {
+      toast((e as Error).message, "err");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="qcard quiz photo felt">
+      <div className="qcard-top">
+        <span className="quiz-tag">📸 תחרות תמונות</span>
+        <span className="pot-chip">
+          לזוכה <Money n={r.reward * (r.mult || 1)} size={15} />
+        </span>
+      </div>
+      <h2 className="qcard-title">{r.title}</h2>
+      {(collecting || voting) && r.closesAt && <Countdown round={r} now={now} />}
+      {collecting && (
+        <>
+          <p className="qcard-note">{mine ? "התמונה שלך בפנים ✓ אפשר להחליף עד שמתחילים להצביע." : "בוחרים מהגלריה את התמונה הכי מביכה של איתי מהערב, או מצלמים עכשיו."}</p>
+          {mine?.photo && <img className="photo-mine" src={mine.photo} alt="התמונה ששלחת" />}
+          <label className={cls("btn btn-gold btn-xl", busy && "busy")}>
+            {busy ? "מעלה…" : mine ? "📸 להחליף תמונה" : "📸 לבחור תמונה"}
+            <input ref={fileRef} type="file" accept="image/*" hidden onChange={(e) => send(e.target.files?.[0])} />
+          </label>
+          <p className="muted center">{r.options.length === 1 ? "נשלחה תמונה אחת" : `נשלחו ${r.options.length} תמונות`}</p>
+        </>
+      )}
+      {!collecting && r.options.length > 0 && (
+        <div className="photo-grid" role="radiogroup" aria-label="על איזו תמונה מצביעים?">
+          {r.options.map((o, i) => {
+            const own = o.playerId === me.id;
+            return (
+              <button
+                key={o.id}
+                type="button"
+                role="radio"
+                aria-checked={myVote?.optionId === o.id}
+                disabled={!voting || busy || own}
+                className={cls("photo-opt", myVote?.optionId === o.id && "on", resolved && o.playerId && wonBy.has(o.playerId) && "won")}
+                onClick={() => vote(o.id)}
+              >
+                {o.photo && <img src={o.photo} alt={`תמונה ${i + 1}`} />}
+                <span>{own ? "שלך" : resolved ? o.label : `#${i + 1}`}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+      {!collecting && (
+        <p className={cls("quiz-status", gain > 0 && "up")}>
+          {voting
+            ? myVote
+              ? "הקול שלך נקלט 🤫 אפשר לשנות עד שהזמן נגמר."
+              : "מצביעים על התמונה הכי מביכה. על שלך אי אפשר 😉"
+            : !resolved
+              ? "סופרים קולות…"
+              : gain > 0
+                ? `התמונה שלך ניצחה! +${fmt(gain)}`
+                : r.refunded
+                  ? "אף אחד לא הצביע."
+                  : "התחרות מאחורינו."}
+        </p>
+      )}
+    </div>
+  );
+}
+
+/* ---------- the end of the night: your own summary ---------- */
+
+function NightSummary({ view, me }: { view: ClientView; me: PlayerPub }) {
+  const st = view.pub.stats?.find((x) => x.id === me.id);
+  if (!st) return null;
+  const list = ranked(view.pub.players);
+  const rank = list.findIndex((p) => p.id === me.id) + 1;
+  const { prize1, prize2, prize3, prizeLast, startBalance } = view.pub.settings;
+  const prize = rank === list.length ? `🍋 ${prizeLast}` : rank === 1 ? `👑 ${prize1}` : rank === 2 ? `🥈 ${prize2}` : rank === 3 ? `🥉 ${prize3}` : null;
+  const tiles: [string, string, string][] = [
+    ["🎲", "הימורים", `${st.betsWon} ✓ / ${st.betsLost} ✗`],
+    ["💰", "רווח מהימורים", `${st.betProfit > 0 ? "+" : ""}${fmt(st.betProfit)}`],
+    ["🏆", "ההימור הכי טוב", st.bestWin ? `+${fmt(st.bestWin)}` : "—"],
+    ["🤫", "משימות שבוצעו", `${st.missionsDone}`],
+    ["🕵️", "תפסת", `${st.catches}`],
+    ["😵", "נתפסת", `${st.timesCaught}`],
+    ["🧠", "תשובות נכונות", `${st.quizRight}`],
+    ["🥃", "שוטים מהמשחק", `${st.shots}`],
+  ];
+  return (
+    <div className="summary felt">
+      <h2>📋 הלילה שלך</h2>
+      <div className="summary-head">
+        <span className="summary-rank">
+          מקום {rank} מתוך {list.length}
+        </span>
+        <Money n={me.balance} size={22} />
+        <Change balance={me.balance} start={startBalance} />
+      </div>
+      {prize && <p className="summary-prize">{prize}</p>}
+      <div className="summary-grid">
+        {tiles.map(([icon, label, value]) => (
+          <div key={label} className="summary-tile">
+            <span aria-hidden="true">{icon}</span>
+            <b>{value}</b>
+            <small>{label}</small>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

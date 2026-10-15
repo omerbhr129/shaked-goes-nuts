@@ -3,8 +3,8 @@ export type ID = string;
 export type Audience = "all" | "friends" | "groom";
 export type MissionStatus = "open" | "pending" | "done" | "burned";
 export type RoundStatus = "draft" | "open" | "closed" | "resolved";
-export type RoundKind = "challenge" | "night" | "quiz" | "vote";
-export type TvMode = "lobby" | "round" | "board" | "night" | "missions" | "awards" | "winner";
+export type RoundKind = "challenge" | "night" | "quiz" | "vote" | "photo";
+export type TvMode = "lobby" | "round" | "board" | "night" | "missions" | "awards" | "winner" | "rules";
 export type FeedKind = "mission" | "reveal" | "caught" | "miss" | "bailout" | "wheel" | "result" | "shot" | "broke" | "gift" | "spin" | "king" | "streak" | "card" | "rename";
 /** the groom's one-time golden cards */
 export type GroomCard = "veto" | "double" | "drink";
@@ -68,6 +68,8 @@ export interface RoundOption {
   id: ID;
   label: string;
   playerId: ID | null;
+  /** photo contest: the picture this player sent */
+  photo?: string;
 }
 
 export interface RoundRec {
@@ -108,6 +110,10 @@ export interface RoundRec {
   mult: number;
   /** the last round of the night: bet everything you have, winners take double */
   final: boolean;
+  /** the crown duel: the king's id. If he loses, he pays the challenger */
+  crown: ID | null;
+  /** photo contest: collecting pictures, then voting on them */
+  phase: "collect" | "vote" | null;
 }
 
 /** A round picked at random by the host: the TV spins a reel of titles before it opens. */
@@ -152,7 +158,7 @@ export interface Mission {
   caughtBy: ID | null;
 }
 
-export type LedgerKind = "bet" | "mission" | "adjust" | "catch" | "penalty" | "bailout" | "quiz" | "gift" | "vote" | "streak" | "swap";
+export type LedgerKind = "bet" | "mission" | "adjust" | "catch" | "penalty" | "bailout" | "quiz" | "gift" | "vote" | "streak" | "swap" | "crown" | "contest";
 
 export interface LedgerEntry {
   id: ID;
@@ -291,6 +297,8 @@ export interface RoundPub {
   game: string | null;
   mult: number;
   final: boolean;
+  crown: ID | null;
+  phase: "collect" | "vote" | null;
   number: number;
   stats: OptionStat[];
   /** sum of all stakes (the bank bonus comes on top) */

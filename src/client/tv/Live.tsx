@@ -223,7 +223,7 @@ export function MusicDirector({ view, game, armed }: { view: ClientView; game: G
   const now = useServerNow(game, live || (!!draw && Date.now() + game.offset < draw.at + spinLength(draw)), 500);
   const drawing = !!draw && now < draw.at + spinLength(draw);
   const betting = live && !drawing && (r!.closesAt === null || now < r!.closesAt);
-  const theme: Theme | null = drawing ? null : betting && view.pub.tv.mode === "round" ? (r!.kind === "quiz" || r!.kind === "vote" ? "quiz" : "bet") : "lounge";
+  const theme: Theme | null = drawing ? null : betting && view.pub.tv.mode === "round" ? (r!.kind === "quiz" || r!.kind === "vote" || r!.kind === "photo" ? "quiz" : "bet") : "lounge";
   useEffect(() => {
     if (!armed) return;
     if (theme) startMusic(theme);
@@ -340,9 +340,9 @@ export function ChatLog({ view, game }: { view: ClientView; game: Game }) {
       if (r.status === "closed") push({ id: `c:${key}`, at: now, who: null, kind: "sys", text: r.kind === "quiz" || r.kind === "vote" ? "🔒 הזמן נגמר" : "🔒 ההימורים נסגרו" });
       if (r.status === "resolved") {
         const label = r.kind === "vote" ? r.losers.map((id) => peopleRef.current[id]?.name).join(", ") : (r.options.find((o) => o.id === r.winnerId)?.label ?? "");
-        const what = r.kind === "quiz" ? "התשובה" : r.kind === "vote" ? "🗳️ נבחר" : "התוצאה";
+        const what = r.kind === "quiz" ? "התשובה" : r.kind === "vote" ? "🗳️ נבחר" : r.kind === "photo" ? "📸 התמונה של" : "התוצאה";
         // the TV counts the votes first; the log waits for it
-        window.setTimeout(() => push({ id: `r:${key}:${r.resolvedAt}`, at: Date.now(), who: null, kind: "sys", text: `🏁 ${what}: ${label}` }), r.kind === "vote" ? 6000 : 0);
+        window.setTimeout(() => push({ id: `r:${key}:${r.resolvedAt}`, at: Date.now(), who: null, kind: "sys", text: `🏁 ${what}: ${label}` }), r.kind === "vote" || r.kind === "photo" ? 6000 : 0);
       }
       t.status = r.status;
     }
@@ -350,7 +350,7 @@ export function ChatLog({ view, game }: { view: ClientView; game: Game }) {
       if (!t.bettors.has(id)) {
         t.bettors.add(id);
         const p = peopleRef.current[id];
-        if (p) push({ id: `b:${key}:${id}`, at: now, who: p, kind: "sys", text: r.kind === "quiz" ? `❓ ${p.name} ענה` : r.kind === "vote" ? `🗳️ ${p.name} הצביע` : `🎲 ${p.name} הימר` });
+        if (p) push({ id: `b:${key}:${id}`, at: now, who: p, kind: "sys", text: r.kind === "quiz" ? `❓ ${p.name} ענה` : r.kind === "vote" || r.kind === "photo" ? `🗳️ ${p.name} הצביע` : `🎲 ${p.name} הימר` });
       }
   }, [r?.id, r?.openedAt, r?.status, r?.bettors.length, r?.resolvedAt]); // eslint-disable-line react-hooks/exhaustive-deps
 

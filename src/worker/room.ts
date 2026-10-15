@@ -1,7 +1,7 @@
 import { DurableObject } from "cloudflare:workers";
 import type { GameState, ID } from "../shared/types";
 import type { Env } from "./env";
-import { REACTIONS, SOUNDS } from "../shared/catalog";
+import { REACTIONS, RULES, SOUNDS } from "../shared/catalog";
 import { GameError, dispatch, newId, nextDue, normalize, tick } from "./logic";
 import { seedState } from "./seed";
 import { buildPublic, viewFor } from "./views";
@@ -276,6 +276,7 @@ export class GameRoom extends DurableObject<Env> {
     if (kind === "feed") return this.s.feed.find((e) => e.id === id)?.text ?? null;
     if (kind === "round" && key) return this.s.rounds.find((r) => r.id === id)?.lines?.[key] ?? null;
     if (kind === "sb") return SOUNDS.find((x) => x.id === id)?.line ?? null;
+    if (kind === "rules") return RULES[Number(id)]?.line ?? null;
     return null;
   }
 
