@@ -2,8 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import type { ClientView, PlayerPub } from "../../shared/types";
 import { cls, fmt, kingAndLast, lsGet, lsSet, resizeImage, useMedia } from "../lib";
 import { creds, useGame, type Game } from "../net";
-import { sfx } from "../sound";
-import { Avatar, Coin, ConnBanner, Led, Marquee, MuteButton, Sheet, ask, toast } from "../ui";
+import { setMuted, sfx, useMuted } from "../sound";
+import { Avatar, Coin, ConnBanner, Led, Marquee, Sheet, ask, toast } from "../ui";
 import { BetTab } from "./BetTab";
 import { BoardTab } from "./BoardTab";
 import { FunTab } from "./FunTab";
@@ -11,13 +11,14 @@ import { JoinScreen } from "./Join";
 import { MissionsTab } from "./MissionsTab";
 import { RodeoPhoto, useIntro } from "../rodeo";
 import { FeedWatcher, MissionWatcher, ResultOverlay } from "./Overlays";
-
-type Tab = "bet" | "missions" | "board" | "fun";
+import { NowBar, RoundPop, type Tab, useGo } from "./Now";
 
 export function PlayerApp() {
   const { game, view, status } = useGame("player");
   const intro = useIntro();
   const [tab, setTab] = useState<Tab>("bet");
+  const go = useGo(setTab);
+  const [howto, setHowto] = useState(() => !lsGet(HOWTO_SEEN));
   // on a laptop / big screen everything sits side by side instead of behind tabs
   const wide = useMedia("(min-width: 1080px)");
 
@@ -45,11 +46,7 @@ export function PlayerApp() {
   const openKey = round && round.status === "open" ? `${round.id}:${round.openedAt}` : null;
   const lastOpen = useRef(openKey);
   useEffect(() => {
-    if (openKey && openKey !== lastOpen.current) {
-      setTab("bet");
-      sfx.open();
-      navigator.vibrate?.([30, 40, 30]);
-    }
+    if (openKey && openKey !== lastOpen.current) setTab("bet");
     lastOpen.current = openKey;
   }, [openKey]);
 
@@ -68,8 +65,9 @@ export function PlayerApp() {
   return (
     <div className={cls("phone", wide && "wide")}>
       <ConnBanner status={status} />
-      <TopBar me={me} view={view} game={game} isKing={king === me.id} />
+      <TopBar me={me} view={view} game={game} isKing={king === me.id} onHelp={() => setHowto(true)} />
       {view.me.available < 100 && <BailoutBanner view={view} game={game} />}
+      {wide && <NowBar game={game} view={view} me={me} />}
       {wide ? (
         <main className="desk">
           <section className="desk-col" aria-label="הבורסה">
@@ -92,15 +90,27 @@ export function PlayerApp() {
             {tab === "board" && <BoardTab view={view} meId={me.id} />}
             {tab === "fun" && <FunTab game={game} view={view} me={me} />}
           </main>
-          <nav className="tabbar" aria-label="מסכים">
-            <TabButton on={tab === "bet"} onClick={() => setTab("bet")} icon="📈" label="הבורסה" dot={needsBet} />
-            <TabButton on={tab === "missions"} onClick={() => setTab("missions")} icon="🤫" label="משימות" count={openMissions} />
-            <TabButton on={tab === "board"} onClick={() => setTab("board")} icon="🏆" label="דירוג" />
-            <TabButton on={tab === "fun"} onClick={() => setTab("fun")} icon="📣" label="למסך" />
-          </nav>
+          <div className="dock">
+            <NowBar game={game} view={view} me={me} go={go} />
+            <nav className="tabbar" aria-label="מסכים">
+              <TabButton on={tab === "bet"} onClick={() => setTab("bet")} icon="📈" label="הבורסה" dot={needsBet} />
+              <TabButton on={tab === "missions"} onClick={() => setTab("missions")} icon="🤫" label="משימות" count={openMissions} />
+              <TabButton on={tab === "board"} onClick={() => setTab("board")} icon="🏆" label="דירוג" />
+              <TabButton on={tab === "fun"} onClick={() => setTab("fun")} icon="📣" label="למסך" />
+            </nav>
+          </div>
         </>
       )}
-      <HowTo view={view} />
+      <RoundPop game={game} view={view} me={me} go={go} />
+      <HowTo
+        view={view}
+        me={me}
+        open={howto}
+        onClose={() => {
+          lsSet(HOWTO_SEEN, "1");
+          setHowto(false);
+        }}
+      />
       <ResultOverlay view={view} meId={me.id} />
       <MissionWatcher view={view} />
       <FeedWatcher view={view} meId={me.id} />
@@ -108,40 +118,55 @@ export function PlayerApp() {
   );
 }
 
-/** Once per device: the whole game on one screen. */
-function HowTo({ view }: { view: ClientView }) {
-  const [open, setOpen] = useState(() => !lsGet("sgn.howto"));
+// a new key: everyone sees the rules once more, now with votes, swaps and the golden cards
+const HOWTO_SEEN = "sgn.howto2";
+
+/** The whole game on one screen: once per device, and any time from the ❔ at the top. */
+function HowTo({ view, me, open, onClose }: { view: ClientView; me: PlayerPub; open: boolean; onClose: () => void }) {
   const { startBalance, currency, prize1, prizeLast, catchWindow, nightCap } = view.pub.settings;
-  const close = () => {
-    lsSet("sgn.howto", "1");
-    setOpen(false);
-  };
   return (
-    <Sheet open={open} onClose={close} title="איך משחקים">
+    <Sheet open={open} onClose={onClose} title="איך משחקים">
       <ul className="howto">
         <li>
           <b>💰 יש לך {fmt(startBalance)} {currency}.</b> מי שמסיים הכי עשיר מנצח, ובבוקר: {prize1}.
         </li>
         <li>
-          <b>📈 הבורסה:</b> המנחה פותח אתגר או שאלת ידע, ואתם מהמרים או עונים כאן. אף אחד לא רואה על מה הימרתם עד שהזמן נגמר.
+          <b>👇 לא בטוחים מה עושים?</b> הפס הצבעוני למטה, מעל הלשוניות, תמיד אומר מה עכשיו. לוחצים עליו, והוא לוקח לשם.
+        </li>
+        <li>
+          <b>📈 הבורסה:</b> המנחה מסובב את גלגל הבלגן, ויוצא אתגר, שאלה או הצבעה. מהמרים, עונים או מצביעים כאן. אף אחד לא רואה מה בחרתם עד שהזמן נגמר.
         </li>
         <li>
           <b>❓ שאלות ידע:</b> צודקים מקבלים {currency}. טועים, או עונים אחרונים, שותים שוט על המסך הגדול.
         </li>
         <li>
-          <b>🌙 הימורי לילה:</b> פתוחים כל הלילה, למטה בלשונית הבורסה. עד {fmt(nightCap)} ביחד, כדי שיישאר לאתגרים.
+          <b>🗳️ הצבעות:</b> ״מי הכי סביר ש...״. מי שמקבל הכי הרבה קולות שותה, ומי שהצביע כמו הרוב מרוויח.
         </li>
         <li>
-          <b>🤫 משימות סודיות:</b> יש לך 3. ביצעת? ״ביצעתי״, והטלוויזיה מכריזה בלי שם. לא תפסו אותך תוך {catchWindow} שניות? מי שעבדת עליו משלם לך. תפסת מישהו? גונבים לו את השקדים.
+          <b>🤫 משימות סודיות:</b> יש לך 3. ביצעת? ״ביצעתי״, והטלוויזיה מכריזה בלי שם. לא תפסו אותך תוך {catchWindow} שניות? מי שעבדת עליו משלם לך. משימה בלתי אפשרית? מחליפים ב־50.
         </li>
         <li>
-          <b>📣 למסך:</b> אימוג׳ים, הודעות (גם בעילום שם) ותמונות מהגלריה קופצים בטלוויזיה. ובחנות: כובעים ושטויות לתמונה של החברים.
+          <b>🕵️ תפסתי!</b> ראיתם מישהו עושה משימה? בלשונית משימות: ״תפסתי מישהו״. צדקתם? גונבים לו את השקדים.
+        </li>
+        <li>
+          <b>🌙 הימורי לילה:</b> פתוחים כל הלילה, למטה בבורסה. עד {fmt(nightCap)} ביחד, כדי שיישאר לאתגרים.
+        </li>
+        <li>
+          <b>📣 למסך:</b> אימוג׳ים, הודעות (גם בעילום שם) ותמונות קופצים בטלוויזיה. ובחנות: כובעים ושטויות לתמונה של החברים.
+        </li>
+        {me.isGroom && (
+          <li>
+            <b>🃏 רק לך, החתן:</b> 3 קלפי זהב בבורסה: וטו, הכפלה ו״אתה שותה!״. כל אחד עובד פעם אחת בלילה.
+          </li>
+        )}
+        <li>
+          <b>✏️ השם והתמונה שלך:</b> לוחצים על התמונה שלך למעלה.
         </li>
         <li>
           <b>🍋 המקום האחרון בבוקר:</b> {prizeLast}.
         </li>
       </ul>
-      <button type="button" className="btn btn-gold btn-xl" onClick={close}>
+      <button type="button" className="btn btn-gold btn-xl" onClick={onClose}>
         יאללה, מתחילים
       </button>
     </Sheet>
@@ -161,7 +186,7 @@ function TabButton({ on, onClick, icon, label, dot, count }: { on: boolean; onCl
   );
 }
 
-function TopBar({ me, view, game, isKing }: { me: PlayerPub; view: ClientView; game: Game; isKing: boolean }) {
+function TopBar({ me, view, game, isKing, onHelp }: { me: PlayerPub; view: ClientView; game: Game; isKing: boolean; onHelp: () => void }) {
   const [profile, setProfile] = useState(false);
   return (
     <header className="topbar">
@@ -174,7 +199,9 @@ function TopBar({ me, view, game, isKing }: { me: PlayerPub; view: ClientView; g
         <Led value={me.balance} />
         <Coin size={20} />
       </div>
-      <MuteButton />
+      <button type="button" className="icon-btn" onClick={onHelp} aria-label="איך משחקים">
+        ❔
+      </button>
       <ProfileSheet open={profile} onClose={() => setProfile(false)} me={me} game={game} />
     </header>
   );
@@ -220,7 +247,24 @@ function BailoutBanner({ view, game }: { view: ClientView; game: Game }) {
 
 function ProfileSheet({ open, onClose, me, game }: { open: boolean; onClose: () => void; me: PlayerPub; game: Game }) {
   const [busy, setBusy] = useState(false);
+  const [name, setName] = useState(me.name);
   const fileRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (open) setName(me.name);
+  }, [open, me.name]);
+
+  const rename = async () => {
+    setBusy(true);
+    try {
+      await game.act("rename", { name });
+      toast("✏️ השם עודכן בכל המסכים", "ok");
+      onClose();
+    } catch (e) {
+      toast((e as Error).message, "err");
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const onFile = async (file?: File) => {
     if (!file) return;
@@ -240,9 +284,9 @@ function ProfileSheet({ open, onClose, me, game }: { open: boolean; onClose: () 
 
   const leave = async () => {
     const ok = await ask({
-      title: "להחליף שם?",
-      body: "המכשיר יתנתק מהשם הזה ותחזרו למסך בחירת השם. היתרה והמשימות נשמרות.",
-      ok: "החלפת שם",
+      title: "להתנתק מהשם הזה?",
+      body: "המכשיר יתנתק ותחזרו לרשימת השמות. היתרה והמשימות נשמרות למי שיתחבר לשם הזה.",
+      ok: "התנתקות",
     });
     if (!ok) return;
     try {
@@ -263,11 +307,44 @@ function ProfileSheet({ open, onClose, me, game }: { open: boolean; onClose: () 
           {busy ? "מעלה…" : "📸 החלפת תמונה"}
           <input ref={fileRef} type="file" accept="image/*" hidden onChange={(e) => onFile(e.target.files?.[0])} />
         </label>
-        <button type="button" className="btn btn-ghost" onClick={leave}>
-          זה לא אני. החלפת שם
+        <form
+          className="rename"
+          onSubmit={(e) => {
+            e.preventDefault();
+            void rename();
+          }}
+        >
+          <label className="field">
+            <span>✏️ איך לקרוא לך?</span>
+            <input value={name} onChange={(e) => setName(e.target.value)} maxLength={16} enterKeyHint="done" autoComplete="off" />
+          </label>
+          <button type="submit" className="btn btn-ghost" disabled={busy || name.trim().length < 2 || name.trim() === me.name}>
+            שמירת השם
+          </button>
+        </form>
+        <SoundToggle />
+        <button type="button" className="link-btn" onClick={leave}>
+          זה לא הטלפון שלי? התנתקות
         </button>
       </div>
     </Sheet>
+  );
+}
+
+function SoundToggle() {
+  const muted = useMuted();
+  return (
+    <button
+      type="button"
+      className="btn btn-ghost"
+      aria-pressed={muted}
+      onClick={() => {
+        setMuted(!muted);
+        if (muted) sfx.tap();
+      }}
+    >
+      {muted ? "🔇 הצלילים בטלפון כבויים. להדליק" : "🔊 הצלילים בטלפון פועלים. להשתיק"}
+    </button>
   );
 }
 

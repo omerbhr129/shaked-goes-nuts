@@ -5,7 +5,7 @@ export type MissionStatus = "open" | "pending" | "done" | "burned";
 export type RoundStatus = "draft" | "open" | "closed" | "resolved";
 export type RoundKind = "challenge" | "night" | "quiz" | "vote";
 export type TvMode = "lobby" | "round" | "board" | "night" | "missions" | "awards" | "winner";
-export type FeedKind = "mission" | "reveal" | "caught" | "miss" | "bailout" | "wheel" | "result" | "shot" | "broke" | "gift" | "spin" | "king" | "streak" | "card";
+export type FeedKind = "mission" | "reveal" | "caught" | "miss" | "bailout" | "wheel" | "result" | "shot" | "broke" | "gift" | "spin" | "king" | "streak" | "card" | "rename";
 /** the groom's one-time golden cards */
 export type GroomCard = "veto" | "double" | "drink";
 export type TargetSlot = "G" | "X" | "Y";

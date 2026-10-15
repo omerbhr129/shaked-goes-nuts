@@ -562,6 +562,18 @@ ok((await admin("sound", { id: "cheers" })).ok, "the host plays a sound on the T
 ok(!(await act("sound", { id: "cheers" }, { token: tokens.ayalon })).ok, "players can't");
 ok(!(await admin("sound", { id: "nope" })).ok, "unknown sounds are refused");
 
+console.log("a player picks his own name");
+ok(!(await act("rename", { name: "ש" }, { token: tokens.birman })).ok, "too short is refused");
+ok(!(await act("rename", { name: "סיסו" }, { token: tokens.birman })).ok, "someone else's name is refused");
+r = await act("rename", { name: "בירמן הענק" }, { token: tokens.birman });
+vp = await pub();
+ok(r.ok && vp.players.find((x) => x.id === "birman").name === "בירמן הענק" && vp.feed.some((e) => e.kind === "rename" && e.players[0] === "birman"), "renamed, and the TV hears about it");
+const aboutHim = (await view({ key: KEY })).admin.missions.filter((m) => m.assignedTo && Object.values(m.targets).includes("birman"));
+ok(aboutHim.every((m) => m.text.includes("בירמן הענק")), `missions about him say the new name (${aboutHim.length})`);
+ok((await rounds()).filter((x) => x.options.some((o) => o.playerId === "birman")).every((x) => x.options.find((o) => o.playerId === "birman").label === "בירמן הענק"), "options with him say the new name");
+await act("rename", { name: "בירמן הגדול" }, { token: tokens.birman });
+ok((await pub()).feed.filter((e) => e.kind === "rename" && e.players[0] === "birman").length === 1, "renaming again right away doesn't spam the TV");
+
 console.log("reset");
 r = await admin("resetGame", { unclaim: true, undeal: true });
 p = await pub();

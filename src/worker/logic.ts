@@ -923,6 +923,22 @@ const PLAYER: Record<string, Handler> = {
   setPhoto(s, c) {
     me(s, c).photo = media(c.p.photo);
   },
+
+  /** Call yourself whatever you like (unique, 2–16 letters). Missions and options that name you follow along. */
+  rename(s, c) {
+    const pl = me(s, c);
+    const name = str(c.p.name, 16);
+    if (name.length < 2) fail("השם צריך להכיל לפחות 2 תווים");
+    if (name === pl.name) return;
+    if (s.players.some((x) => x.id !== pl.id && x.name === name)) fail("השם הזה כבר תפוס. נסו משהו אחר");
+    const old = pl.name;
+    pl.name = name;
+    for (const r of s.rounds) for (const o of r.options) if (o.playerId === pl.id && o.label === old) o.label = name;
+    for (const m of s.missions) if (m.assignedTo && Object.values(m.targets).includes(pl.id)) m.text = renderText(s, m.template, m.targets);
+    // one line on the TV, not one per typo
+    if (!s.feed.some((e) => e.kind === "rename" && e.players[0] === pl.id && c.now - e.at < 60_000))
+      pushFeed(s, c.now, "rename", `✏️ ${old} שינה את השם שלו ל״${name}״`, [pl.id], pl.id);
+  },
 };
 
 const ADMIN: Record<string, Handler> = {
