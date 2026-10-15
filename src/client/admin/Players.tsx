@@ -206,6 +206,8 @@ function Settings({ view, run }: { view: ClientView; run: Run }) {
     prize2: s.prize2,
     prize3: s.prize3,
     prizeLast: s.prizeLast,
+    nightCap: s.nightCap,
+    catchWindow: s.catchWindow,
   });
   const text = (k: "prize1" | "prize2" | "prize3" | "prizeLast") => (e: React.ChangeEvent<HTMLInputElement>) => setF((x) => ({ ...x, [k]: e.target.value }));
   const num = (k: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement>) => setF((x) => ({ ...x, [k]: Number(e.target.value) }));
@@ -236,6 +238,14 @@ function Settings({ view, run }: { view: ClientView; run: Run }) {
         <label className="field">
           <span>סכום חילוץ</span>
           <input type="number" inputMode="numeric" value={f.bailoutAmount} onChange={num("bailoutAmount")} />
+        </label>
+        <label className="field">
+          <span>תקרה להימורי לילה (ביחד)</span>
+          <input type="number" inputMode="numeric" value={f.nightCap} onChange={num("nightCap")} />
+        </label>
+        <label className="field">
+          <span>שניות לתפוס משימה</span>
+          <input type="number" inputMode="numeric" value={f.catchWindow} onChange={num("catchWindow")} />
         </label>
       </div>
       <div className="prize-fields">

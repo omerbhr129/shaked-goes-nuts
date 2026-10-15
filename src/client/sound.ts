@@ -231,18 +231,20 @@ export const sfx = {
     }),
 };
 
-/* ---------- the betting soundtrack: an original, silly casino loop, synthesized (no files, no rights issues) ---------- */
+/* ---------- music: original synthesized loops (no files, no rights issues), one theme at a time ---------- */
+
+export type Theme = "bet" | "quiz" | "lounge";
 
 const midi = (m: number) => 440 * 2 ** ((m - 69) / 12);
-const STEP = 60 / 140 / 2; // eighth notes at 140 bpm
-const CHORDS = [
+
+// betting: a silly, bouncy casino loop
+const BET_CHORDS = [
   [36, [60, 64, 67]],
   [33, [57, 60, 64]],
   [29, [53, 57, 60]],
   [31, [55, 59, 62]],
 ] as const;
-// eight bars of melody, eighth notes, 0 = rest
-const TUNE = [
+const BET_TUNE = [
   [72, 0, 76, 79, 76, 0, 72, 74],
   [76, 0, 72, 69, 72, 0, 76, 77],
   [77, 81, 77, 72, 74, 0, 77, 76],
@@ -252,46 +254,92 @@ const TUNE = [
   [77, 0, 81, 84, 81, 77, 74, 77],
   [76, 74, 72, 0, 67, 0, 72, 0],
 ];
+// quiz: a ticking clock over a plucked bass, thinking music
+const QUIZ_BASS = [
+  [45, 52, 45, 52],
+  [41, 48, 41, 48],
+  [38, 45, 38, 45],
+  [40, 47, 40, 44],
+];
+const QUIZ_BELLS = [
+  [69, 72, 76, 74],
+  [65, 69, 72, 71],
+  [74, 77, 81, 79],
+  [76, 74, 71, 68],
+];
+// between rounds: a lazy casino lounge, Cmaj7 Am7 Dm7 G7
+const LOUNGE = [
+  [60, 64, 67, 71],
+  [57, 60, 64, 67],
+  [62, 65, 69, 72],
+  [55, 59, 62, 65],
+];
+const LOUNGE_BASS = [
+  [36, 40, 43, 45],
+  [33, 36, 40, 43],
+  [38, 41, 45, 47],
+  [31, 35, 38, 41],
+];
+
+const BPM: Record<Theme, number> = { bet: 140, quiz: 120, lounge: 92 };
+const LEVEL: Record<Theme, number> = { bet: 0.55, quiz: 0.5, lounge: 0.42 };
 
 let bus: GainNode | null = null;
+let theme: Theme | null = null;
 let musicTimer = 0;
 let nextAt = 0;
 let step = 0;
 
-function playStep(i: number, t: number) {
+function playStep(th: Theme, i: number, t: number) {
   if (!bus) return;
-  const bar = Math.floor(i / 8) % TUNE.length;
+  const st = 60 / BPM[th] / 2;
+  const bar = Math.floor(i / 8);
   const pos = i % 8;
-  const [root, chord] = CHORDS[bar % 4];
-  if (pos % 2 === 0) {
-    const bass = [0, 7, 12, 7][pos / 2];
-    voice(t, midi(root + bass), STEP * 1.6, "triangle", 0.32, undefined, bus);
-  } else for (const n of chord) voice(t, midi(n), 0.07, "square", 0.025, undefined, bus);
-  const m = TUNE[bar][pos];
-  if (m) voice(t, midi(m), STEP * 0.7, "square", 0.05, undefined, bus);
-  // drums: kick on 1 and 3, snare on 2 and 4, hats on every eighth
-  if (pos === 0 || pos === 4) voice(t, 120, 0.18, "sine", 0.5, 45, bus);
-  if (pos === 2 || pos === 6) hiss(t, 0.12, 0.22, 1800, 0.7, bus);
-  hiss(t, 0.03, 0.06, 8000, 1, bus);
-  // a slide whistle at the end of every fourth bar, because why not
-  if (pos === 6 && bar % 4 === 3) voice(t, 380, 0.32, "sine", 0.12, 1500, bus);
+  if (th === "bet") {
+    const [root, chord] = BET_CHORDS[bar % 4];
+    if (pos % 2 === 0) voice(t, midi(root + [0, 7, 12, 7][pos / 2]), st * 1.6, "triangle", 0.32, undefined, bus);
+    else for (const n of chord) voice(t, midi(n), 0.07, "square", 0.025, undefined, bus);
+    const m = BET_TUNE[bar % BET_TUNE.length][pos];
+    if (m) voice(t, midi(m), st * 0.7, "square", 0.05, undefined, bus);
+    if (pos === 0 || pos === 4) voice(t, 120, 0.18, "sine", 0.5, 45, bus);
+    if (pos === 2 || pos === 6) hiss(t, 0.12, 0.22, 1800, 0.7, bus);
+    hiss(t, 0.03, 0.06, 8000, 1, bus);
+    if (pos === 6 && bar % 4 === 3) voice(t, 380, 0.32, "sine", 0.12, 1500, bus);
+  } else if (th === "quiz") {
+    voice(t, pos % 2 ? 2600 : 1900, 0.025, "square", 0.022, undefined, bus);
+    if (pos % 2 === 0) {
+      voice(t, midi(QUIZ_BASS[bar % 4][pos / 2]), 0.22, "triangle", 0.3, undefined, bus);
+      voice(t, midi(QUIZ_BELLS[bar % 4][pos / 2]), 0.55, "sine", 0.06, undefined, bus);
+    }
+    if (pos === 0 && bar % 4 === 0) hiss(t, 0.3, 0.05, 900, 0.5, bus);
+  } else {
+    const swing = pos % 2 ? st * 0.18 : 0;
+    if (pos === 0 || pos === 3) for (const n of LOUNGE[bar % 4]) voice(t + swing, midi(n), 1.2, "sine", 0.035, undefined, bus);
+    if (pos % 2 === 0) voice(t, midi(LOUNGE_BASS[bar % 4][pos / 2]), 0.5, "triangle", 0.2, undefined, bus);
+    hiss(t + swing, 0.06, pos % 2 ? 0.05 : 0.03, 6000, 0.8, bus);
+    if (pos === 6 && bar % 2 === 1) voice(t + swing, midi(LOUNGE[bar % 4][3] + 12), 0.7, "sine", 0.045, undefined, bus);
+  }
 }
 
-/** Start the betting music on this screen. Safe to call repeatedly. */
-export function startMusic() {
-  if (musicTimer || muted || silent) return;
+/** Play a theme on this screen (switching from whatever was playing). Safe to call repeatedly. */
+export function startMusic(th: Theme = "bet") {
+  if (muted || silent) return;
+  if (theme === th && musicTimer) return;
+  stopMusic();
   unlockAudio();
   if (!ctx || !master) return;
   bus = ctx.createGain();
-  bus.gain.value = 0.55;
+  bus.gain.value = 0.0001;
+  bus.gain.setTargetAtTime(LEVEL[th], ctx.currentTime, 0.3);
   bus.connect(master);
+  theme = th;
   step = 0;
   nextAt = ctx.currentTime + 0.08;
   musicTimer = window.setInterval(() => {
-    if (!ctx) return;
+    if (!ctx || !theme) return;
     while (nextAt < ctx.currentTime + 0.3) {
-      playStep(step++, nextAt);
-      nextAt += STEP;
+      playStep(theme, step++, nextAt);
+      nextAt += 60 / BPM[theme] / 2;
     }
   }, 60);
 }
@@ -300,16 +348,17 @@ export function stopMusic() {
   if (!musicTimer) return;
   window.clearInterval(musicTimer);
   musicTimer = 0;
+  theme = null;
   const b = bus;
   bus = null;
   if (b && ctx) {
-    b.gain.setTargetAtTime(0.0001, ctx.currentTime, 0.08);
-    window.setTimeout(() => b.disconnect(), 600);
+    b.gain.setTargetAtTime(0.0001, ctx.currentTime, 0.12);
+    window.setTimeout(() => b.disconnect(), 900);
   }
 }
 
 function duck(on: boolean) {
-  if (bus && ctx) bus.gain.setTargetAtTime(on ? 0.12 : 0.55, ctx.currentTime, 0.15);
+  if (bus && ctx && theme) bus.gain.setTargetAtTime(on ? 0.1 : LEVEL[theme], ctx.currentTime, 0.15);
 }
 
 /* ---------- the announcer: lines the game wrote, read out by the server's voice ---------- */

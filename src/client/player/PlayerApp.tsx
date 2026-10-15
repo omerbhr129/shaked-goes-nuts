@@ -6,12 +6,13 @@ import { sfx } from "../sound";
 import { Avatar, Coin, ConnBanner, Led, Marquee, MuteButton, Sheet, ask, toast } from "../ui";
 import { BetTab } from "./BetTab";
 import { BoardTab } from "./BoardTab";
+import { FunTab } from "./FunTab";
 import { JoinScreen } from "./Join";
 import { MissionsTab } from "./MissionsTab";
 import { RodeoPhoto, useIntro } from "../rodeo";
 import { FeedWatcher, MissionWatcher, ResultOverlay } from "./Overlays";
 
-type Tab = "bet" | "missions" | "board";
+type Tab = "bet" | "missions" | "board" | "fun";
 
 export function PlayerApp() {
   const { game, view, status } = useGame("player");
@@ -63,6 +64,7 @@ export function PlayerApp() {
           </section>
           <section className="desk-col" aria-label="משימות">
             <MissionsTab game={game} view={view} />
+            <FunTab game={game} view={view} me={me} />
           </section>
           <section className="desk-col" aria-label="דירוג">
             <BoardTab view={view} meId={me.id} />
@@ -74,11 +76,13 @@ export function PlayerApp() {
             {tab === "bet" && <BetTab game={game} view={view} me={me} />}
             {tab === "missions" && <MissionsTab game={game} view={view} />}
             {tab === "board" && <BoardTab view={view} meId={me.id} />}
+            {tab === "fun" && <FunTab game={game} view={view} me={me} />}
           </main>
           <nav className="tabbar" aria-label="מסכים">
             <TabButton on={tab === "bet"} onClick={() => setTab("bet")} icon="📈" label="הבורסה" dot={needsBet} />
             <TabButton on={tab === "missions"} onClick={() => setTab("missions")} icon="🤫" label="משימות" count={openMissions} />
             <TabButton on={tab === "board"} onClick={() => setTab("board")} icon="🏆" label="דירוג" />
+            <TabButton on={tab === "fun"} onClick={() => setTab("fun")} icon="📣" label="למסך" />
           </nav>
         </>
       )}
@@ -93,7 +97,7 @@ export function PlayerApp() {
 /** Once per device: the whole game on one screen. */
 function HowTo({ view }: { view: ClientView }) {
   const [open, setOpen] = useState(() => !lsGet("sgn.howto"));
-  const { startBalance, currency, prize1, prizeLast, catchReward } = view.pub.settings;
+  const { startBalance, currency, prize1, prizeLast, catchWindow, nightCap } = view.pub.settings;
   const close = () => {
     lsSet("sgn.howto", "1");
     setOpen(false);
@@ -111,10 +115,13 @@ function HowTo({ view }: { view: ClientView }) {
           <b>❓ שאלות ידע:</b> צודקים מקבלים {currency}. טועים, או עונים אחרונים, שותים שוט על המסך הגדול.
         </li>
         <li>
-          <b>🌙 הימורי לילה:</b> פתוחים כל הלילה, למטה בלשונית הבורסה.
+          <b>🌙 הימורי לילה:</b> פתוחים כל הלילה, למטה בלשונית הבורסה. עד {fmt(nightCap)} ביחד, כדי שיישאר לאתגרים.
         </li>
         <li>
-          <b>🤫 משימות סודיות:</b> יש לך 3. מבצעים בלי שאף אחד ישים לב, ולוחצים ״ביצעתי״. חושדים במישהו? ״תפסתי!״ שווה {fmt(catchReward)}.
+          <b>🤫 משימות סודיות:</b> יש לך 3. ביצעת? ״ביצעתי״, והטלוויזיה מכריזה בלי שם. לא תפסו אותך תוך {catchWindow} שניות? מי שעבדת עליו משלם לך. תפסת מישהו? גונבים לו את השקדים.
+        </li>
+        <li>
+          <b>📣 למסך:</b> אימוג׳ים, הודעות (גם בעילום שם) ותמונות מהגלריה קופצים בטלוויזיה. ובחנות: כובעים ושטויות לתמונה של החברים.
         </li>
         <li>
           <b>🍋 המקום האחרון בבוקר:</b> {prizeLast}.

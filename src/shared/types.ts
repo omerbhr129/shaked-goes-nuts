@@ -5,7 +5,7 @@ export type MissionStatus = "open" | "pending" | "done" | "burned";
 export type RoundStatus = "draft" | "open" | "closed" | "resolved";
 export type RoundKind = "challenge" | "night" | "quiz";
 export type TvMode = "lobby" | "round" | "board" | "night" | "missions" | "awards" | "winner";
-export type FeedKind = "mission" | "caught" | "miss" | "bailout" | "wheel" | "result" | "shot" | "broke";
+export type FeedKind = "mission" | "reveal" | "caught" | "miss" | "bailout" | "wheel" | "result" | "shot" | "broke" | "gift";
 export type TargetSlot = "G" | "X" | "Y";
 export type WheelKind = "drink" | "punish";
 
@@ -23,6 +23,10 @@ export interface Settings {
   prize2: string;
   prize3: string;
   prizeLast: string;
+  /** most a player can have riding on night bets at once, so there is money left for challenges */
+  nightCap: number;
+  /** seconds everybody has to catch a finished mission before it pays */
+  catchWindow: number;
 }
 
 export interface PlayerRec {
@@ -33,6 +37,29 @@ export interface PlayerRec {
   isGroom: boolean;
   token: string | null;
   joinedAt: number | null;
+  /** bought in the shop: an emoji on the head, and one next to the face */
+  hat: string | null;
+  item: string | null;
+}
+
+/** A message, or a photo from someone's gallery, thrown onto the TV. */
+export interface Shout {
+  id: ID;
+  at: number;
+  author: ID;
+  anon: boolean;
+  text: string | null;
+  photo: string | null;
+  hidden: boolean;
+}
+
+export interface ShoutPub {
+  id: ID;
+  at: number;
+  /** null when sent anonymously */
+  by: ID | null;
+  text: string | null;
+  photo: string | null;
 }
 
 export interface RoundOption {
@@ -73,6 +100,8 @@ export interface RoundRec {
   lines: Record<string, string>;
   /** challenge: what the losers have to do */
   task: string | null;
+  /** one-on-one game (pingpong, arm, ...): picks the winner's picture and the line */
+  game: string | null;
 }
 
 /** A round picked at random by the host: the TV spins a reel of titles before it opens. */
@@ -107,7 +136,7 @@ export interface Mission {
   caughtBy: ID | null;
 }
 
-export type LedgerKind = "bet" | "mission" | "adjust" | "catch" | "penalty" | "bailout" | "quiz";
+export type LedgerKind = "bet" | "mission" | "adjust" | "catch" | "penalty" | "bailout" | "quiz" | "gift";
 
 export interface LedgerEntry {
   id: ID;
@@ -144,8 +173,8 @@ export interface FeedEvent {
   text: string;
   players: ID[];
   ref: ID | null;
-  /** for the big TV moments: the line on its own, the task, the almonds */
-  data?: { line?: string; task?: string; amount?: number };
+  /** for the big TV moments: the line on its own, the task, the almonds, how long to catch */
+  data?: { line?: string; task?: string; amount?: number; until?: number; mission?: ID };
 }
 
 export interface WheelSpin {
@@ -181,6 +210,7 @@ export interface GameState {
   activeRoundId: ID | null;
   lastResolvedId: ID | null;
   draw: DrawState | null;
+  shouts: Shout[];
 }
 
 /* ---------- views sent to clients ---------- */
@@ -196,6 +226,8 @@ export interface PlayerPub {
   online: boolean;
   spark: number[];
   last: number;
+  hat: string | null;
+  item: string | null;
 }
 
 export interface OptionStat {
@@ -233,6 +265,7 @@ export interface RoundPub {
   loserReason: "wrong" | "slow" | null;
   lines: Record<string, string>;
   task: string | null;
+  game: string | null;
   number: number;
   stats: OptionStat[];
   /** sum of all stakes (the bank bonus comes on top) */
@@ -285,6 +318,7 @@ export interface PublicView {
   stats: PlayerStats[] | null;
   draw: DrawState | null;
   missionsDone: number;
+  shouts: ShoutPub[];
 }
 
 export interface MyBet {
@@ -304,6 +338,8 @@ export interface MeView {
   bailout: BailoutReq | null;
   /** missions of yours that were burned, with who caught you */
   burned: { text: string; by: ID | null }[];
+  /** what you have riding on night bets right now */
+  nightStaked: number;
 }
 
 export interface AdminView {
@@ -314,6 +350,7 @@ export interface AdminView {
   bailouts: BailoutReq[];
   joined: Record<ID, number | null>;
   ledger: LedgerEntry[];
+  shouts: Shout[];
 }
 
 export interface ClientView {

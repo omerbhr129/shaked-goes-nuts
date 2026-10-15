@@ -120,9 +120,9 @@ export function MissionsTab({ view, run }: { view: ClientView; run: Run }) {
                         החלפה
                       </button>
                     )}
-                    {m.status === "open" ? (
-                      <button type="button" className="mini" onClick={() => run("reviewMission", { missionId: m.id, approve: true }, "סומנה כבוצעה")}>
-                        סימון כבוצעה
+                    {m.status === "open" || m.status === "pending" ? (
+                      <button type="button" className="mini" onClick={() => run("reviewMission", { missionId: m.id, approve: true }, "שולם ונחשף בטלוויזיה")}>
+                        {m.status === "pending" ? "לאשר עכשיו" : "סימון כבוצעה"}
                       </button>
                     ) : (
                       <button type="button" className="mini" onClick={() => run("reviewMission", { missionId: m.id, approve: false }, "הסימון בוטל")}>

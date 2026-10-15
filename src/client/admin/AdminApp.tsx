@@ -228,6 +228,31 @@ function AdminLogin({ game }: { game: Game }) {
   );
 }
 
+/** What the phones sent to the TV, with who really sent it (also the anonymous ones), and a way to pull it. */
+function ShoutsAdmin({ view, run }: { view: ClientView; run: Run }) {
+  const list = view.admin!.shouts.slice(0, 12);
+  const name = (id: string) => view.pub.players.find((p) => p.id === id)?.name ?? "?";
+  return (
+    <div className="felt shouts-admin">
+      <h3>📣 מה עלה למסך</h3>
+      {!list.length && <p className="muted">עוד אף אחד לא שלח כלום למסך.</p>}
+      {list.map((x) => (
+        <div key={x.id} className={cls("mrow", x.hidden && "burned")}>
+          <span className="mrow-text">
+            <b>{name(x.author)}</b>
+            {x.anon && <small className="muted"> (בעילום שם)</small>}: {x.photo && <img className="shout-thumb" src={x.photo} alt="" />} {x.text}
+          </span>
+          {!x.hidden && (
+            <button type="button" className="mini" onClick={() => run("hideShout", { shoutId: x.id }, "הוסתר מהמסך")}>
+              הסתרה
+            </button>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export function WheelButtons({ run }: { run: Run }) {
   return (
     <div className="row-actions">
@@ -317,6 +342,8 @@ function TvTab({ view, run, wide }: { view: ClientView; run: Run; wide: boolean 
           {steps[step]?.kind === "punish" && <p className="muted">עכשיו לוחצים על ״גלגל העונשים״ למטה.</p>}
         </div>
       )}
+
+      <ShoutsAdmin view={view} run={run} />
 
       <div className="felt wheels">
         <h3>הגלגלים</h3>

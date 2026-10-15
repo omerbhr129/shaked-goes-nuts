@@ -120,7 +120,9 @@ const optionLabel = (round: RoundPub, id: string | null | undefined) => round.op
 /** The betting form for one round: pick an option, pick chips, see what it would pay. */
 function BetForm({ game, view, me, round, now, compact }: { game: Game; view: ClientView; me: PlayerPub; round: RoundPub; now: number; compact?: boolean }) {
   const myBet = view.me!.bets[round.id] ?? null;
-  const max = Math.min(round.maxBet, view.me!.available + (myBet?.amount ?? 0));
+  const cap = round.kind === "night" ? view.pub.settings.nightCap : 0;
+  const nightRoom = cap > 0 ? cap - (view.me!.nightStaked - (myBet?.amount ?? 0)) : Infinity;
+  const max = Math.min(round.maxBet, view.me!.available + (myBet?.amount ?? 0), nightRoom);
   const min = Math.min(round.minBet, max);
   const clamp = (n: number) => Math.max(min, Math.min(max, Math.round(n)));
   const [optionId, setOptionId] = useState<string | null>(myBet?.optionId ?? null);
@@ -146,7 +148,13 @@ function BetForm({ game, view, me, round, now, compact }: { game: Game; view: Cl
   }
 
   if (max <= 0) {
-    return wrap(<div className="notice">אין לך כרגע {view.pub.settings.currency} פנויים להימור. אפשר להשלים משימה סודית או לבקש חילוץ.</div>);
+    return wrap(
+      <div className="notice">
+        {nightRoom <= 0
+          ? `כבר שמת ${fmt(cap)} על הימורי לילה, זה המקסימום. השאר בשביל האתגרים 😉`
+          : `אין לך כרגע ${view.pub.settings.currency} פנויים להימור. אפשר להשלים משימה סודית או לבקש חילוץ.`}
+      </div>,
+    );
   }
 
   const submit = async () => {
@@ -261,6 +269,7 @@ function BetForm({ game, view, me, round, now, compact }: { game: Game; view: Cl
             </div>
             <p className="amount-hint">
               אפשר להמר על {fmt(min)} עד {fmt(max)}
+              {cap > 0 && ` · בהימורי לילה עד ${fmt(cap)} ביחד`}
             </p>
           </div>
 

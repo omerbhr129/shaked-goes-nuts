@@ -2,12 +2,12 @@ import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { DrawState, PlayerPub } from "../../shared/types";
 import { cls, photoOf } from "../lib";
-import { sfx, startMusic, stopMusic } from "../sound";
+import { sfx } from "../sound";
 import { Money } from "../ui";
 
 /* The TV's big moments: AI pictures of the guys, full screen, with a line the announcer reads out. */
 
-export type SpotKind = "fast" | "win" | "lose" | "shot" | "slow" | "mission" | "broke";
+export type SpotKind = "fast" | "win" | "lose" | "shot" | "slow" | "mission" | "broke" | "champ";
 
 const AI: Record<SpotKind, (id: string) => string> = {
   fast: (id) => `/photos/ai/fast/${id}.jpg`,
@@ -17,6 +17,7 @@ const AI: Record<SpotKind, (id: string) => string> = {
   lose: (id) => `/photos/ai/broke/${id}.jpg`,
   slow: (id) => `/photos/ai/slow/${id}.jpg`,
   broke: (id) => `/photos/ai/broke/${id}.jpg`,
+  champ: (id) => `/photos/ai/champ/champ/${id}.jpg`,
 };
 
 /** Drinking tasks get the shot picture, anything else the crying-in-the-rain one. */
@@ -28,8 +29,8 @@ export const holdTv = (ms: number) => {
   tvBusy.until = Math.max(tvBusy.until, Date.now() + ms);
 };
 
-function AiImg({ kind, p, className }: { kind: SpotKind; p: PlayerPub; className?: string }) {
-  const chain = [AI[kind](p.id), `/photos/funny/${p.id}.jpg`, photoOf(p)];
+function AiImg({ kind, p, className, first }: { kind: SpotKind; p: PlayerPub; className?: string; first?: string }) {
+  const chain = [...(first ? [first] : []), AI[kind](p.id), `/photos/ai/king/${p.id}.jpg`, `/photos/funny/${p.id}.jpg`, photoOf(p)];
   const [i, setI] = useState(0);
   return i < chain.length ? <img className={className} src={chain[i]} alt="" draggable={false} onError={() => setI((x) => x + 1)} /> : null;
 }
@@ -42,7 +43,9 @@ export function Spotlight({
   sub,
   task,
   amount,
+  img,
 }: {
+  img?: (p: PlayerPub) => string;
   kind: SpotKind;
   title: string;
   people: PlayerPub[];
@@ -58,16 +61,16 @@ export function Spotlight({
     <motion.div className={cls("spot", `spot-${kind}`, hero ? "hero" : one ? "one" : "many")} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.35 }}>
       {hero && (
         <div className="spot-bleed">
-          <AiImg kind={kind} p={people[0]} className="spot-kenburns" />
+          <AiImg kind={kind} p={people[0]} className="spot-kenburns" first={img?.(people[0])} />
         </div>
       )}
       {one && !hero && (
         <>
           <div className="spot-blur" aria-hidden="true">
-            <AiImg kind={kind} p={people[0]} />
+            <AiImg kind={kind} p={people[0]} first={img?.(people[0])} />
           </div>
           <motion.div className="spot-frame" initial={{ scale: 0.6, rotate: -6, opacity: 0 }} animate={{ scale: 1, rotate: -2, opacity: 1 }} transition={{ type: "spring", stiffness: 160, damping: 14 }}>
-            <AiImg kind={kind} p={people[0]} className="spot-kenburns" />
+            <AiImg kind={kind} p={people[0]} className="spot-kenburns" first={img?.(people[0])} />
           </motion.div>
         </>
       )}
@@ -80,7 +83,7 @@ export function Spotlight({
           <div className="spot-cards">
             {people.map((p, i) => (
               <motion.div key={p.id} className="spot-card" style={{ width: size }} initial={{ y: 90, opacity: 0, rotate: i % 2 ? 6 : -6 }} animate={{ y: 0, opacity: 1, rotate: i % 2 ? 2 : -2 }} transition={{ delay: 0.35 + i * 0.12, type: "spring", stiffness: 180, damping: 15 }}>
-                <AiImg kind={kind} p={p} />
+                <AiImg kind={kind} p={p} first={img?.(p)} />
                 <b>{p.name}</b>
               </motion.div>
             ))}
@@ -182,11 +185,9 @@ export function BettingVibes({ active }: { active: boolean }) {
 
   useEffect(() => {
     if (!active) {
-      stopMusic();
       setPops([]);
       return;
     }
-    startMusic();
     const add = () => {
       let pick = Math.floor(Math.random() * POPS.length);
       if (pick === last.current) pick = (pick + 1) % POPS.length;
@@ -206,7 +207,6 @@ export function BettingVibes({ active }: { active: boolean }) {
     return () => {
       window.clearTimeout(first);
       window.clearInterval(every);
-      stopMusic();
     };
   }, [active]);
 

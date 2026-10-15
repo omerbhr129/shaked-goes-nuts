@@ -50,7 +50,7 @@ export function Money({ n, size = 18, sign = false, className }: { n: number; si
 
 /* ---------- people ---------- */
 
-type AvatarPerson = Pick<PlayerPub, "id" | "name" | "photo" | "isGroom">;
+type AvatarPerson = Pick<PlayerPub, "id" | "name" | "photo" | "isGroom"> & { hat?: string | null; item?: string | null };
 
 export function Avatar({ p, size = 44, className, badge }: { p: AvatarPerson; size?: number; className?: string; badge?: string | null }) {
   const src = photoOf(p);
@@ -69,13 +69,28 @@ export function Avatar({ p, size = 44, className, badge }: { p: AvatarPerson; si
       )}
     </span>
   );
-  if (!badge) return face;
+  const hat = p.hat ?? null;
+  const item = p.item ?? null;
+  if (!badge && !hat && !item) return face;
+  // what friends bought him: a hat on the head, something next to the face
   return (
     <span className="avatar-wrap">
       {face}
-      <span className="avatar-badge" style={{ fontSize: Math.max(14, Math.round(size * 0.36)) }} aria-hidden="true">
-        {badge}
-      </span>
+      {hat && (
+        <span className="avatar-hat" style={{ fontSize: Math.max(14, Math.round(size * 0.52)) }} aria-hidden="true">
+          {hat}
+        </span>
+      )}
+      {badge && (
+        <span className={cls("avatar-badge", hat && "side")} style={{ fontSize: Math.max(12, Math.round(size * (hat ? 0.3 : 0.36))) }} aria-hidden="true">
+          {badge}
+        </span>
+      )}
+      {item && (
+        <span className="avatar-item" style={{ fontSize: Math.max(12, Math.round(size * 0.38)) }} aria-hidden="true">
+          {item}
+        </span>
+      )}
     </span>
   );
 }

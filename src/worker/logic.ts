@@ -1,4 +1,5 @@
-import type { Audience, FeedEvent, FeedKind, GameState, ID, Mission, PlayerRec, RoundKind, RoundOption, RoundRec, TargetSlot, TvMode, WheelKind } from "../shared/types";
+import type { Audience, FeedEvent, FeedKind, GameState, Shout, ID, Mission, PlayerRec, RoundKind, RoundOption, RoundRec, TargetSlot, TvMode, WheelKind } from "../shared/types";
+import { GAMES, SHOP } from "../shared/catalog";
 import { DEFAULT_SETTINGS, seedState } from "./seed";
 
 /** A rule violation. Its message is shown to the person as-is. */
@@ -38,6 +39,12 @@ export function available(s: GameState, pid: ID, exceptRoundId?: ID): number {
 }
 
 /** Open for bets: a drawn round only starts once the TV's reel has stopped spinning. */
+/** Stakes on night bets that are not settled yet (optionally leaving one round out). */
+export function nightStaked(s: GameState, pid: ID, except?: ID): number {
+  const live = new Set(s.rounds.filter((r) => r.kind === "night" && (r.status === "open" || r.status === "closed") && r.id !== except).map((r) => r.id));
+  return s.bets.filter((b) => b.playerId === pid && live.has(b.roundId)).reduce((a, b) => a + b.amount, 0);
+}
+
 export function bettingOpen(r: RoundRec, now: number): boolean {
   return r.status === "open" && (r.openedAt === null || now >= r.openedAt) && (r.closesAt === null || now < r.closesAt);
 }
@@ -70,6 +77,11 @@ export function normalize(s: GameState): GameState {
   s.activeRoundId ??= null;
   s.lastResolvedId ??= null;
   s.draw ??= null;
+  s.shouts ??= [];
+  for (const p of s.players) {
+    p.hat ??= null;
+    p.item ??= null;
+  }
   s.tv = Object.assign({ mode: "lobby", at: Date.now(), step: 0 }, s.tv);
   s.settings = Object.assign({ ...DEFAULT_SETTINGS }, s.settings);
   for (const r of s.rounds) {
@@ -82,6 +94,7 @@ export function normalize(s: GameState): GameState {
     r.loserReason ??= null;
     r.lines ??= {};
     r.task ??= null;
+    r.game ??= null;
   }
   for (const m of s.missions) {
     m.caughtBy ??= null;
@@ -98,41 +111,58 @@ function resetRound(r: RoundRec) {
 /* ---------- the funny bits: unfiltered lines for the TV and the announcer ---------- */
 
 const LINES = {
-  mission: [
-    "{n} הקליבר הזה סגר משימה סודית! מה הוא עשה? מי שמנחש, גונב לו את השקדים",
-    "{n} הזיין עבד על כולכם בעיניים. משימה סודית בוצעה",
-    "{n} עשה משימה מתחת לאף שלכם, חבורת עיוורים",
-    "{n}: אחת. כל השאר: אפס עגול. משימה סודית בוצעה",
-    "{n} מרוויח שקדים בזמן שאתם מגרדים ת׳ראש",
-    "תגידו תודה ל{n}. הוא הרגע עבד עליכם כמו על ילדים בגן",
-    "פרס האוסקר הולך ל{n}! הוא הרגע סגר משימה סודית",
-    "{n} השקרן הכי מוכשר בגליל המערבי. משימה סודית בוצעה",
+  // a mission was just done: nobody knows by whom (yet)
+  alert: [
+    "שימו לב יא זונות! משימה סודית בוצעה הרגע! יש לכם דקה וחצי לתפוס את המניאק שעשה אותה",
+    "וואלה יא שרמוטות, מישהו פה עבד עליכם בעיניים! משימה סודית בוצעה. מי זה? תפסו אותו!",
+    "אחושרמוטה! משימה סודית בוצעה מתחת לאף שלכם. יש לכם דקה וחצי, יא נובים",
+    "שימו לב כולם, שימו לב יא זונות! משימה סודית! מי שתופס את הבן זונה, גונב לו את השקדים",
   ],
-  caught: ["איזה חובבן", "בפעם הבאה תתאמן מול המראה", "השקדים הלכו לפח", "ככה זה כשמתעסקים עם בלשים"],
-  miss: ["פרנואיד מקצועי", "תרגיע, אחי", "מינוס 50 על הדמיון המפותח"],
-  win1: ["{n} המלך! תשתחוו לו", "{n} הזיין קרע את הבורסה", "{n} קרא את המשחק כמו נוסטרדמוס", "{n} הרוויח, ועכשיו הוא יהיה בלתי נסבל כל הלילה"],
-  winN: ["{n} קרעו את הבורסה! תשתחוו", "{n}: המלכים של הסיבוב", "{n} צדקו, ועכשיו הם יהיו בלתי נסבלים כל הלילה"],
+  // nobody caught him: the name comes out and whoever got played pays
+  reveal: [
+    "זה היה {n}, יא זונות! עבד על {t} בעיניים, ו{t} משלם לו {r} שקדים",
+    "וואלה, {n} הקליבר הזה! סגר משימה על {t} ואף אחד לא תפס. {t}, תוציא את הארנק",
+    "{n} הזיין עשה ל{t} בית ספר. {r} שקדים עוברים מ{t} ל{n}",
+    "אחושרמוטה, {n}! {t} אכל אותה ומשלם {r} שקדים",
+  ],
+  revealN: [
+    "זה היה {n}, יא זונות! עבד על {t} בעיניים, והם משלמים לו {r} שקדים",
+    "וואלה, {n} הקליבר הזה! עבד על {t} ואף אחד לא תפס. תוציאו את הארנקים",
+  ],
+  caught: ["איזה חובבן", "בפעם הבאה תתאמן מול המראה, יא נוב", "השקדים עברו לבלש", "ככה זה כשמתעסקים עם בלשים, יא שרמוטה"],
+  miss: ["פרנואיד מקצועי", "תרגיע, אחי", "50 שקדים עוברים לחשוד, יא זונה"],
+  win1: ["{n} המלך! תשתחוו לו, יא זונות", "{n} הזיין קרע את הבורסה", "וואלה {n}, קראת את המשחק כמו נוסטרדמוס, כפרה עליך", "{n} הרוויח, ועכשיו הוא יהיה בלתי נסבל כל הלילה"],
+  winN: ["{n} קרעו את הבורסה! תשתחוו, יא שרמוטות", "{n}: המלכים של הסיבוב, וכל השאר זונות של הבורסה", "{n} צדקו, ועכשיו הם יהיו בלתי נסבלים כל הלילה"],
   groomWin: ["החתן ניצח! שחף, תתכונני לחיים עם אלוף", "{n} החתן הזיין קרע את הבורסה"],
-  lose1: ["{n} הימר כמו גאון והפסיד כמו אידיוט", "{n}, הבורסה צחקה לך בפרצוף", "יא ברוך, {n}. שוב", "{n} שרף שקדים כמו שאיתי שורף סטייקים"],
-  loseN: ["{n} הימרו כמו גאונים והפסידו כמו אידיוטים", "{n}, הבורסה צחקה לכם בפרצוף", "{n}: חבורת חובבנים", "{n} שרפו שקדים כמו שאיתי שורף סטייקים"],
-  groomLose: ["החתן הפסיד! שחף, את רואה עם מי את מתחתנת?", "{n}, עוד לא התחתנת וכבר מפסיד"],
-  none: ["אף אחד לא צדק! חבורת אפסים. השקדים חוזרים, אבל כולם שותים", "אפס צדקו. אפס! הבורסה מחזירה את הכסף ומתביישת בכם"],
+  lose1: ["{n} הימר כמו גאון והפסיד כמו אפס", "{n}, יא שרמוטה, הבורסה צחקה לך בפרצוף", "יא ברוך, {n}. שוב", "{n} שרף שקדים כמו שאיתי שורף סטייקים"],
+  loseN: ["{n} הימרו כמו גאונים והפסידו כמו אפסים", "{n}, יא זונות, הבורסה צחקה לכם בפרצוף", "{n}: חבורת נובים", "{n} שרפו שקדים כמו שאיתי שורף סטייקים"],
+  groomLose: ["החתן הפסיד! שחף, את רואה עם מי את מתחתנת?", "{n}, עוד לא התחתנת וכבר מפסיד, יא כפרה"],
+  none: ["אף אחד לא צדק! חבורת אפסים. השקדים חוזרים, אבל כולם שותים", "אפס צדקו. אפס! יא זונות, הבורסה מתביישת בכם"],
+  // one-on-one: {w} won, {l} lost, {game} is what they played
+  duel: [
+    "{w} פירק את {l} ב{game}! וואלה {l}, לך תתאמן מול הקיר",
+    "{w} הזיין קרע את {l} ב{game}. {l}, תחזור כשתגדל",
+    "אחושרמוטה, איזה {game}! {w} ניצח, ו{l} בוכה לאמא",
+    "{w} מלך ה{game}! {l}, השוט עליך, יא כפרה",
+  ],
   fast: [
     "{n} ענה מהר יותר מאיתי כשאומרים לו ״שווארמה״",
-    "{n}: האצבע הכי מהירה במזרח התיכון",
-    "{n} ענה לפני שסיימנו לכתוב את השאלה",
+    "{n}: האצבע הכי מהירה במזרח התיכון, וואלה",
+    "{n} ענה לפני שסיימנו לכתוב את השאלה, יא מלך",
     "גוגל התקשרו. הם רוצים את {n} בחזרה",
-    "מהר יותר מאיתי כשהוא שומע ״בר פתוח״. כל הכבוד {n}",
+    "מהר יותר מאיתי כשהוא שומע ״בר פתוח״. כפרה עליך {n}",
     "{n} עובד במוסד? רק שואלים",
     "{n} מהיר כמו שאיתי אמר ״כן״ לשחף",
-    "{n}, תשאיר קצת שקדים גם לאחרים",
+    "{n}, תשאיר קצת שקדים גם לזונות האחרות",
   ],
-  wrong1: ["{n} ענה כמו אחרון הבוגרים", "{n}, אפילו גוגל לא היה מציל אותך", "{n} טעה בגדול, אחי"],
-  wrongN: ["{n} ענו כמו חבורת בוגרי מכינה", "{n}, אפילו גוגל לא היה מציל אתכם", "{n} טעו בגדול"],
+  wrong1: ["{n} ענה כמו אחרון הנובים", "{n}, אפילו גוגל לא היה מציל אותך, יא שרמוטה", "{n} טעה בגדול, אחי"],
+  wrongN: ["{n} ענו כמו חבורת נובים", "{n}, יא זונות, אפילו גוגל לא היה מציל אתכם", "{n} טעו בגדול"],
   silent1: ["{n} בכלל לא ענה, ישן בעמידה", "{n} לא ענה. כנראה היה עסוק בלהסתכל על הנוף"],
-  silentN: ["{n} בכלל לא ענו, ישנים בעמידה", "{n} לא ענו. כנראה היו עסוקים במנגל"],
-  slow: ["{n} צדק, אבל בקצב של צב בפנסיה. שוט!", "{n} ענה לאט כמו האינטרנט בווילה. שוט!", "{n} עדיין קורא את השאלה. שוט!"],
-  broke: ["{n} פשט רגל! אמא שלו כבר מתקשרת לבנק", "{n} שרף את כל השקדים. הבנק המרכזי בהלם", "{n} נשאר עם כיס ריק ולב שבור", "{n} רשמית מרושש. מישהו יקנה לו שקד?"],
+  silentN: ["{n} בכלל לא ענו, ישנים בעמידה, יא זונות", "{n} לא ענו. כנראה היו עסוקים במנגל"],
+  slow: ["{n} צדק, אבל בקצב של צב בפנסיה. שוט, יא שרמוטה!", "{n} ענה לאט כמו האינטרנט בווילה. שוט!", "{n} עדיין קורא את השאלה, וואלה. שוט!"],
+  broke: ["{n} פשט רגל, יא זונות! אמא שלו כבר מתקשרת לבנק", "{n} שרף את כל השקדים. הבנק המרכזי בהלם", "{n} נשאר עם כיס ריק ולב שבור, כפרה עליו", "{n} רשמית מרושש. מישהו יקנה לזונה הזאת שקד?"],
+  gift: ["איזה חבר", "וואלה, נדיב", "יא זונה רומנטית", "כפרה עליך"],
+  selfGift: ["אין כמו לפנק את עצמך", "יא נרקיסיסט", "וואלה, מגיע לך"],
 };
 
 const andList = (names: string[]) => (names.length > 1 ? `${names.slice(0, -1).join(", ")} ו${names[names.length - 1]}` : (names[0] ?? ""));
@@ -162,9 +192,19 @@ function roast(s: GameState, ids: ID[], one: string[], many: string[], groom: st
 }
 
 /** Challenge settled: who won, who lost, and what the losers have to do now. */
-function verdict(s: GameState, r: RoundRec) {
+function verdict(s: GameState, r: RoundRec, winId: ID) {
   const res = s.ledger.filter((e) => e.kind === "bet" && e.ref === r.id);
   const lines: Record<string, string> = {};
+  // a one-on-one: the winner gets his picture and a line about the game
+  const w = r.options.find((o) => o.id === winId)?.playerId;
+  const rivals = r.options.filter((o) => o.playerId && o.playerId !== w).map((o) => nameOf(s, o.playerId!));
+  if (w && rivals.length) {
+    lines.duel = sample(LINES.duel)
+      .replaceAll("{w}", nameOf(s, w))
+      .replaceAll("{l}", andList(rivals))
+      .replaceAll("{game}", (r.game && GAMES[r.game]?.name) || "האתגר");
+    lines.duelLoser = andList(rivals);
+  }
   r.task = null;
   r.losers = [];
   if (r.refunded) {
@@ -201,6 +241,78 @@ function quizLines(s: GameState, r: RoundRec) {
     lines.shot = `${parts.join(". ")}. ${r.losers.length > 1 ? "המשימה של כולם" : "המשימה"}: לשתות שוט!`;
   }
   r.lines = lines;
+}
+
+/** A mission survived its catch window: the holder is named, and whoever he played pays him. */
+function payMission(s: GameState, m: Mission, now: number) {
+  const holder = m.assignedTo;
+  if (!holder) return;
+  s.ledger = s.ledger.filter((e) => !(e.kind === "mission" && e.ref === m.id));
+  const targets = [...new Set(Object.values(m.targets).filter((t): t is ID => !!t && t !== holder && s.players.some((p) => p.id === t)))];
+  s.ledger.push({ id: newId(), playerId: holder, delta: m.reward, kind: "mission", ref: m.id, note: "משימה סודית", at: now });
+  let left = m.reward;
+  targets.forEach((t, i) => {
+    const share = i === targets.length - 1 ? left : Math.floor(m.reward / targets.length);
+    left -= share;
+    s.ledger.push({ id: newId(), playerId: t, delta: -share, kind: "mission", ref: m.id, note: `${nameOf(s, holder)} עבד עליך`, at: now });
+  });
+  Object.assign(m, { status: "done", doneAt: now });
+  const who = nameOf(s, holder);
+  const line = targets.length
+    ? sample(targets.length > 1 ? LINES.revealN : LINES.reveal)
+        .replaceAll("{n}", who)
+        .replaceAll("{t}", andList(targets.map((t) => nameOf(s, t))))
+        .replaceAll("{r}", fmt(m.reward))
+    : `${who} סגר משימה סודית ואף אחד לא תפס! +${fmt(m.reward)}`;
+  pushFeed(s, now, "reveal", `🕵️ ${line}`, [holder, ...targets], m.id, { line, amount: m.reward });
+}
+
+/** Missions whose catch window is over, and nobody is still accusing their holder. */
+function dueMissions(s: GameState, now: number) {
+  const win = s.settings.catchWindow * 1000;
+  return s.missions.filter(
+    (m) =>
+      m.status === "pending" &&
+      m.assignedTo &&
+      m.claimedAt &&
+      now >= m.claimedAt + win - 30 &&
+      !s.accusations.some((a) => a.status === "pending" && a.suspect === m.assignedTo),
+  );
+}
+
+/** Time-based things: betting closing, missions paying out. Returns true if anything changed. */
+export function tick(s: GameState, now: number): boolean {
+  const before = new Map(s.players.filter((p) => p.token).map((p) => [p.id, balanceOf(s, p.id)]));
+  let changed = false;
+  const r = activeRound(s);
+  if (r && r.status === "open" && r.closesAt && now >= r.closesAt - 30) {
+    if (r.kind === "quiz") closeQuiz(s, r, now);
+    else r.status = "closed";
+    changed = true;
+  }
+  for (const m of dueMissions(s, now)) {
+    payMission(s, m, now);
+    changed = true;
+  }
+  if (changed) watchBroke(s, before, now);
+  return changed;
+}
+
+/** When the next time-based thing is due (missions held up by an accusation wait for the host instead). */
+export function nextDue(s: GameState): number | null {
+  const times: number[] = [];
+  const r = activeRound(s);
+  if (r && r.status === "open" && r.closesAt) times.push(r.closesAt);
+  const win = s.settings.catchWindow * 1000;
+  for (const m of s.missions)
+    if (m.status === "pending" && m.claimedAt && !s.accusations.some((a) => a.status === "pending" && a.suspect === m.assignedTo))
+      times.push(m.claimedAt + win);
+  return times.length ? Math.min(...times) : null;
+}
+
+function pushShout(s: GameState, sh: Omit<Shout, "id" | "at" | "hidden">, now: number) {
+  s.shouts.push({ id: newId(), at: now, hidden: false, ...sh });
+  if (s.shouts.length > 40) s.shouts = s.shouts.slice(-40);
 }
 
 /** Whoever drops under the bailout line becomes the show: a task on the TV, and a bailout waiting for the host. */
@@ -368,7 +480,7 @@ function resolveWith(s: GameState, r: RoundRec, win: RoundOption, now: number) {
     quizLines(s, r);
   } else {
     settle(s, r, win.id, now);
-    if (r.kind === "challenge") verdict(s, r);
+    if (r.kind === "challenge") verdict(s, r, win.id);
   }
   Object.assign(r, { status: "resolved", winnerId: win.id, resolvedAt: now });
   s.lastResolvedId = r.id;
@@ -468,7 +580,7 @@ const PLAYER: Record<string, Handler> = {
       const name = str(p.name, 16);
       if (name.length < 2) fail("השם צריך להכיל לפחות 2 תווים");
       if (s.players.some((x) => x.name === name)) fail("השם הזה כבר ברשימה. בחרו אותו משם");
-      pl = { id: newId(), name, ticker: ipoTicker(s), photo: null, isGroom: false, token: newId(24), joinedAt: now };
+      pl = { id: newId(), name, ticker: ipoTicker(s), photo: null, isGroom: false, token: newId(24), joinedAt: now, hat: null, item: null };
       s.players.push(pl);
     }
     dealTo(s, pl);
@@ -505,11 +617,18 @@ const PLAYER: Record<string, Handler> = {
       if (s.players.every((x) => !x.token || r.noBet.includes(x.id) || answered.has(x.id))) closeQuiz(s, r, c.now);
       return { ticket };
     }
-    const max = Math.min(r.maxBet, available(s, pl.id, r.id));
+    let max = Math.min(r.maxBet, available(s, pl.id, r.id));
+    let room = Infinity;
+    if (r.kind === "night" && s.settings.nightCap > 0) {
+      room = s.settings.nightCap - nightStaked(s, pl.id, r.id);
+      if (room <= 0) fail(`על הימורי לילה אפשר לשים עד ${fmt(s.settings.nightCap)} ביחד, כדי שיישאר לאתגרים`);
+      max = Math.min(max, room);
+    }
     if (max <= 0) fail(`נגמרו לך ה${s.settings.currency}. אפשר לבקש חילוץ 🆘`);
     const min = Math.min(r.minBet, max);
     const amount = Math.round(Number(c.p.amount));
-    if (!Number.isFinite(amount) || amount < min || amount > max) fail(`אפשר להמר על ${min} עד ${max}`);
+    if (!Number.isFinite(amount) || amount < min || amount > max)
+      fail(amount > max && max === room ? `על הימורי לילה אפשר עד ${fmt(s.settings.nightCap)} ביחד. נשאר לך ${fmt(room)}` : `אפשר להמר על ${min} עד ${max}`);
     const existing = s.bets.find((b) => b.roundId === r.id && b.playerId === pl.id);
     if (existing) {
       existing.optionId = opt.id;
@@ -534,19 +653,18 @@ const PLAYER: Record<string, Handler> = {
     const m = findMission(s, c.p.missionId);
     if (m.assignedTo !== pl.id) fail("המשימה הזאת לא שלך");
     if (m.status === "burned") fail("המשימה נשרפה. מישהו תפס אותך 🔥");
-    if (m.status === "done") fail("המשימה כבר סומנה כבוצעה");
-    m.status = "done";
-    m.doneAt = c.now;
-    m.claimedAt = c.now;
-    s.ledger.push({ id: newId(), playerId: pl.id, delta: m.reward, kind: "mission", ref: m.id, note: "משימה סודית", at: c.now });
-    const line = fill(LINES.mission, pl.name);
-    pushFeed(s, c.now, "mission", `🚨 ${line} (+${fmt(m.reward)})`, [pl.id], m.id, { line, amount: m.reward });
+    if (m.status === "done" || m.status === "pending") fail("המשימה כבר סומנה כבוצעה");
+    Object.assign(m, { status: "pending", claimedAt: c.now, doneAt: null });
+    const win = s.settings.catchWindow;
+    if (win <= 0) return void payMission(s, m, c.now);
+    const line = sample(LINES.alert);
+    pushFeed(s, c.now, "mission", `🚨 ${line}`, [], m.id, { line, until: c.now + win * 1000 });
   },
 
   unclaimMission(s, c) {
     const pl = me(s, c);
     const m = findMission(s, c.p.missionId);
-    if (m.assignedTo !== pl.id || m.status !== "done") fail("אי אפשר לבטל את המשימה הזאת");
+    if (m.assignedTo !== pl.id || (m.status !== "done" && m.status !== "pending")) fail("אי אפשר לבטל את המשימה הזאת");
     s.ledger = s.ledger.filter((e) => !(e.kind === "mission" && e.ref === m.id));
     m.status = "open";
     m.doneAt = null;
@@ -575,6 +693,39 @@ const PLAYER: Record<string, Handler> = {
     if (available(s, pl.id) >= 100) fail("חילוץ מגיע רק למי שנשאר עם פחות מ־100");
     if (s.bailouts.some((b) => b.playerId === pl.id && b.status === "pending")) fail("כבר ביקשת חילוץ. המנחה על זה");
     s.bailouts.push({ id: newId(), playerId: pl.id, at: c.now, status: "pending", dare: null });
+  },
+
+  /** Zynga style: buy someone (or yourself) a hat or a drink for their picture. */
+  gift(s, c) {
+    const pl = me(s, c);
+    const to = findPlayer(s, c.p.to);
+    const it = SHOP.find((x) => x.id === c.p.item) ?? fail("המתנה הזאת לא קיימת");
+    if (available(s, pl.id) < it.price) fail(`אין לך מספיק ${s.settings.currency} פנויים`);
+    if (it.slot === "hat") to.hat = it.emoji;
+    else to.item = it.emoji;
+    s.ledger.push({ id: newId(), playerId: pl.id, delta: -it.price, kind: "gift", ref: to.id, note: `${it.emoji} ${it.name} ל${to.name}`, at: c.now });
+    const text =
+      to.id === pl.id
+        ? `🎁 ${pl.name} קנה לעצמו ${it.name} ${it.emoji}. ${sample(LINES.selfGift)}`
+        : `🎁 ${pl.name} קנה ל${to.name} ${it.name} ${it.emoji}. ${sample(LINES.gift)}`;
+    pushFeed(s, c.now, "gift", text, to.id === pl.id ? [pl.id] : [pl.id, to.id], to.id, { amount: it.price });
+  },
+
+  shout(s, c) {
+    const pl = me(s, c);
+    const text = str(c.p.text, 90);
+    if (!text) fail("כתבו משהו");
+    const last = s.shouts.findLast((x) => x.author === pl.id);
+    if (last && c.now - last.at < 4000) fail("רגע, לאט לאט 🙂");
+    pushShout(s, { author: pl.id, anon: !!c.p.anon, text, photo: null }, c.now);
+  },
+
+  shoutPhoto(s, c) {
+    const pl = me(s, c);
+    const photo = media(c.p.photo) ?? fail("התמונה לא עלתה. נסו שוב");
+    const last = s.shouts.findLast((x) => x.author === pl.id && x.photo);
+    if (last && c.now - last.at < 15_000) fail("תמונה אחת כל 15 שניות 🙂");
+    pushShout(s, { author: pl.id, anon: !!c.p.anon, text: str(c.p.text, 60) || null, photo }, c.now);
   },
 
   setPhoto(s, c) {
@@ -642,6 +793,7 @@ const ADMIN: Record<string, Handler> = {
       loserReason: null,
       lines: {},
       task: null,
+      game: null,
     };
     s.rounds.push(r);
     return { id: r.id };
@@ -712,6 +864,58 @@ const ADMIN: Record<string, Handler> = {
     const reel = shuffle(s.rounds.filter((x) => x.kind === kind && x !== r)).slice(0, 9);
     s.draw = { at: now, roundId: r.id, titles: [...reel, r].map((x) => `${x.emoji} ${x.title}`) };
     return { id: r.id, title: r.title };
+  },
+
+  hideShout(s, { p }) {
+    const sh = s.shouts.find((x) => x.id === p.shoutId) ?? fail("ההודעה לא נמצאה");
+    sh.hidden = true;
+  },
+
+  /** Pick a game and two guys, and betting opens right away. */
+  quickDuel(s, { p, now }) {
+    const key = String(p.game);
+    const g = GAMES[key] ?? fail("בחרו משחק");
+    const a = findPlayer(s, p.a);
+    const b = findPlayer(s, p.b);
+    if (a.id === b.id) fail("בחרו שני שחקנים שונים");
+    const cur = activeRound(s);
+    if (cur && (cur.status === "open" || cur.status === "closed")) fail(`הסיבוב ״${cur.title}״ עדיין פעיל. קודם הכריזו תוצאה או בטלו אותו`);
+    const seconds = int(p.seconds, 60, 0, 900);
+    const r: RoundRec = {
+      id: newId(),
+      kind: "challenge",
+      emoji: g.emoji,
+      title: `${g.name}: ${a.name} נגד ${b.name}. מי ינצח?`,
+      note: g.note,
+      image: null,
+      options: [
+        { id: a.id, label: a.name, playerId: a.id },
+        { id: b.id, label: b.name, playerId: b.id },
+      ],
+      minBet: 50,
+      maxBet: 500,
+      seconds,
+      bonus: s.settings.bankBonus,
+      reward: 0,
+      correctId: null,
+      noBet: [a.id, b.id],
+      status: "open",
+      openedAt: now,
+      closesAt: seconds > 0 ? now + seconds * 1000 : null,
+      winnerId: null,
+      resolvedAt: null,
+      refunded: false,
+      losers: [],
+      loserReason: null,
+      lines: {},
+      task: null,
+      game: key,
+    };
+    const firstNight = s.rounds.findIndex((x) => x.kind === "night");
+    s.rounds.splice(firstNight < 0 ? s.rounds.length : firstNight, 0, r);
+    s.activeRoundId = r.id;
+    s.tv = { mode: "round", at: now, step: 0 };
+    return { id: r.id };
   },
 
   openAllNight(s, { now }) {
@@ -845,8 +1049,8 @@ const ADMIN: Record<string, Handler> = {
     if (m.status === "burned") fail("המשימה נשרפה");
     if (p.approve) {
       if (m.status === "done") return;
-      Object.assign(m, { status: "done", doneAt: now });
-      s.ledger.push({ id: newId(), playerId: m.assignedTo, delta: m.reward, kind: "mission", ref: m.id, note: "משימה סודית", at: now });
+      m.claimedAt ??= now;
+      payMission(s, m, now);
     } else {
       s.ledger = s.ledger.filter((e) => !(e.kind === "mission" && e.ref === m.id));
       Object.assign(m, { status: "open", claimedAt: null, doneAt: null });
@@ -861,15 +1065,18 @@ const ADMIN: Record<string, Handler> = {
       const m =
         s.missions.find((x) => x.id === p.missionId && x.assignedTo === a.suspect && x.status !== "burned") ??
         fail("בחרו משימה של החשוד");
+      const worth = Math.max(m.reward, s.settings.catchReward);
       s.ledger = s.ledger.filter((e) => !(e.kind === "mission" && e.ref === m.id));
       Object.assign(m, { status: "burned", caughtBy: a.by, doneAt: null, claimedAt: null });
       Object.assign(a, { status: "right", missionId: m.id });
-      s.ledger.push({ id: newId(), playerId: a.by, delta: s.settings.catchReward, kind: "catch", ref: a.id, note: `תפס את ${suspect}`, at: now });
+      s.ledger.push({ id: newId(), playerId: a.by, delta: worth, kind: "catch", ref: a.id, note: `תפס את ${suspect}`, at: now });
+      s.ledger.push({ id: newId(), playerId: a.suspect, delta: -worth, kind: "catch", ref: a.id, note: `נתפס על ידי ${by}`, at: now });
       dealTo(s, findPlayer(s, a.suspect));
-      pushFeed(s, now, "caught", `🕵️ ${by} תפס את ${suspect} על חם! המשימה שנשרפה: ${m.text}. ${sample(LINES.caught)}`, [a.by, a.suspect], a.id);
+      pushFeed(s, now, "caught", `🕵️ ${by} תפס את ${suspect} על חם! המשימה: ${m.text}. ${by} גונב לו ${fmt(worth)} שקדים. ${sample(LINES.caught)}`, [a.by, a.suspect], a.id, { amount: worth, mission: m.id });
     } else {
       a.status = "wrong";
       s.ledger.push({ id: newId(), playerId: a.by, delta: -s.settings.falsePenalty, kind: "penalty", ref: a.id, note: "האשמת שווא", at: now });
+      s.ledger.push({ id: newId(), playerId: a.suspect, delta: s.settings.falsePenalty, kind: "penalty", ref: a.id, note: "פיצוי על האשמת שווא", at: now });
       pushFeed(s, now, "miss", `🤡 האשמת שווא! ${by} חשד ב${suspect} ופספס. ${sample(LINES.miss)}`, [a.by, a.suspect], a.id);
     }
   },
@@ -912,7 +1119,7 @@ const ADMIN: Record<string, Handler> = {
       if ("photo" in d) existing.photo = media(d.photo);
       return { id: existing.id };
     }
-    const pl: PlayerRec = { id: newId(), name, ticker, photo: media(d.photo), isGroom, token: null, joinedAt: null };
+    const pl: PlayerRec = { id: newId(), name, ticker, photo: media(d.photo), isGroom, token: null, joinedAt: null, hat: null, item: null };
     s.players.push(pl);
     return { id: pl.id };
   },
@@ -981,11 +1188,14 @@ const ADMIN: Record<string, Handler> = {
       prize2: str(d.prize2, 120) || cur.prize2,
       prize3: str(d.prize3, 120) || cur.prize3,
       prizeLast: str(d.prizeLast, 120) || cur.prizeLast,
+      nightCap: int(d.nightCap, cur.nightCap, 0, 1_000_000),
+      catchWindow: int(d.catchWindow, cur.catchWindow, 0, 900),
     };
   },
 
   resetGame(s, { p, now }) {
-    Object.assign(s, { bets: [], ledger: [], accusations: [], bailouts: [], feed: [], wheel: null, draw: null, seq: 0, activeRoundId: null, lastResolvedId: null });
+    Object.assign(s, { bets: [], ledger: [], accusations: [], bailouts: [], feed: [], shouts: [], wheel: null, draw: null, seq: 0, activeRoundId: null, lastResolvedId: null });
+    for (const pl of s.players) Object.assign(pl, { hat: null, item: null });
     for (const r of s.rounds)
       resetRound(r);
     for (const m of s.missions) {

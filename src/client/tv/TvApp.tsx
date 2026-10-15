@@ -6,6 +6,7 @@ import { RodeoPhoto, useIntro } from "../rodeo";
 import { type Game, useGame, useServerNow } from "../net";
 import { prefetchLine, sfx, silence, speak, unlockAudio } from "../sound";
 import { Avatar, Marquee, Ticker, burst } from "../ui";
+import { CatchClock, FxLayer, MusicDirector, MysterySpot, ShoutsLayer } from "./Live";
 import { BettingVibes, DRAW_MS, DrawReel, Spotlight, holdTv, tvBusy } from "./Moments";
 import { AwardsScreen, BoardScreen, Lobby, NightScreen, QuizScreen, RevealScreen, RoundScreen, WinnerScreen } from "./Screens";
 
@@ -93,7 +94,11 @@ export function TvApp() {
           </AnimatePresence>
           <Ticker players={view.pub.players} start={view.pub.settings.startBalance} />
           <RoundExtras view={view} game={game} />
-          <NewsBanner feed={view.pub.feed} players={view.pub.players} skipShots={mode === "round"} />
+          <ShoutsLayer shouts={view.pub.shouts} players={view.pub.players} feed={view.pub.feed} />
+          <FxLayer game={game} />
+          <CatchClock feed={view.pub.feed} game={game} />
+          <MusicDirector view={view} game={game} armed={armed} />
+          <NewsBanner feed={view.pub.feed} players={view.pub.players} skipShots={mode === "round"} offset={game.offset} />
           <WheelOverlay wheel={view.pub.wheel} players={view.pub.players} offset={game.offset} feed={view.pub.feed} />
           <span className={cls("tv-conn", status)} aria-hidden="true" />
         </div>
@@ -145,11 +150,11 @@ function RoundExtras({ view, game }: { view: ClientView; game: Game }) {
   );
 }
 
-const NEWS_TAG: Record<string, string> = { mission: "מבזק", caught: "נתפס!", miss: "פספוס", bailout: "חילוץ", result: "הוכרע", shot: "שוט!", broke: "פשט רגל" };
-const BIG = new Set(["mission", "broke"]);
+const NEWS_TAG: Record<string, string> = { mission: "מבזק", reveal: "נחשף", caught: "נתפס!", miss: "פספוס", bailout: "חילוץ", result: "הוכרע", shot: "שוט!", broke: "פשט רגל", gift: "מתנה" };
+const BIG = new Set(["mission", "reveal", "broke"]);
 
 /** Breaking news: a strip for small things, the whole screen for a finished mission or someone going broke. */
-function NewsBanner({ feed, players, skipShots }: { feed: FeedEvent[]; players: PlayerPub[]; skipShots: boolean }) {
+function NewsBanner({ feed, players, skipShots, offset }: { feed: FeedEvent[]; players: PlayerPub[]; skipShots: boolean; offset: number }) {
   const [queue, setQueue] = useState<FeedEvent[]>([]);
   const seen = useRef<Set<string> | null>(null);
   useEffect(() => {
@@ -158,9 +163,16 @@ function NewsBanner({ feed, players, skipShots }: { feed: FeedEvent[]; players: 
       return;
     }
     // the wheel and the quiz screen show their own big moments
-    const fresh = feed.filter((e) => !seen.current!.has(e.id) && e.kind !== "wheel" && !(skipShots && e.kind === "shot"));
+    // gifts have their own lane (the bubbles); big moments jump ahead of the small news
+    const fresh = feed.filter((e) => !seen.current!.has(e.id) && e.kind !== "wheel" && e.kind !== "gift" && !(skipShots && e.kind === "shot"));
     for (const e of feed) seen.current.add(e.id);
-    if (fresh.length) setQueue((q) => [...q, ...fresh]);
+    if (fresh.length)
+      setQueue((q) => {
+        const [now, ...rest] = q;
+        const all = [...rest, ...fresh];
+        const big = all.filter((e) => BIG.has(e.kind));
+        return [...(now ? [now] : []), ...big, ...all.filter((e) => !BIG.has(e.kind))];
+      });
   }, [feed]);
 
   // wait while a round's own moments are playing, then show it and read it out
@@ -180,6 +192,9 @@ function NewsBanner({ feed, players, skipShots }: { feed: FeedEvent[]; players: 
     if (current.kind === "mission") {
       sfx.siren();
       sfx.boom();
+    } else if (current.kind === "reveal") {
+      sfx.fanfare();
+      burst("win");
     } else if (current.kind === "broke") sfx.sad();
     else if (current.kind === "caught") sfx.gotcha();
     else if (current.kind === "miss") sfx.lose();
@@ -192,16 +207,22 @@ function NewsBanner({ feed, players, skipShots }: { feed: FeedEvent[]; players: 
   }, [current?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const people = current ? current.players.map((id) => players.find((p) => p.id === id)).filter((p): p is PlayerPub => !!p) : [];
+  if (current?.kind === "mission")
+    return (
+      <AnimatePresence>
+        <MysterySpot key={current.id} line={current.data?.line ?? current.text} until={current.data?.until} offset={offset} />
+      </AnimatePresence>
+    );
   if (current && BIG.has(current.kind) && people.length)
     return (
       <AnimatePresence>
         <Spotlight
           key={current.id}
           kind={current.kind === "broke" ? "broke" : "mission"}
-          title={current.kind === "broke" ? "💸 פשט רגל!" : "🚨 מבזק!"}
+          title={current.kind === "broke" ? "💸 פשט רגל!" : "🕵️ נחשף!"}
           people={people.slice(0, 1)}
           line={current.data?.line ?? current.text}
-          sub={current.kind === "mission" ? "מה הוא עשה? מי שמנחש נכון בטלפון, גונב לו את השקדים 🕵️" : "אחרי שהוא מבצע, המנחה מאשר לו חילוץ מהבנק"}
+          sub={current.kind === "reveal" ? "אף אחד לא תפס אותו. עדיין אפשר לנחש מה הוא עשה ולגנוב לו את השקדים 🕵️" : "אחרי שהוא מבצע, המנחה מאשר לו חילוץ מהבנק"}
           task={current.data?.task}
           amount={current.data?.amount}
         />

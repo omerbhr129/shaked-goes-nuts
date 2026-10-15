@@ -40,6 +40,13 @@ interface Snapshot {
   status: ConnStatus;
 }
 
+/** Things that happen and are gone: emojis flying at the TV. */
+export interface Fx {
+  kind: "emoji";
+  e: string;
+  by: string;
+}
+
 /**
  * One live connection per screen. State arrives over a WebSocket; actions go over HTTP so a
  * half-dead socket (phone just woke up) can never swallow a bet. If the socket is down we poll.
@@ -50,6 +57,7 @@ export class Game {
   private ws: WebSocket | null = null;
   private sid: string | null = null;
   private subs = new Set<() => void>();
+  private fxSubs = new Set<(fx: Fx) => void>();
   private retries = 0;
   private lastSeen = 0;
   private reconnectTimer = 0;
@@ -79,6 +87,13 @@ export class Game {
     };
   };
   getSnapshot = () => this.snap;
+
+  onFx(fn: (fx: Fx) => void) {
+    this.fxSubs.add(fn);
+    return () => {
+      this.fxSubs.delete(fn);
+    };
+  }
 
   private set(patch: Partial<Snapshot>) {
     this.snap = { ...this.snap, ...patch };
@@ -131,6 +146,11 @@ export class Game {
       try {
         m = JSON.parse(ev.data);
       } catch {
+        return;
+      }
+      if (m.t === "fx" && m.d) {
+        const fx = m.d as unknown as Fx;
+        this.fxSubs.forEach((f) => f(fx));
         return;
       }
       if (m.t === "s" && m.d) {

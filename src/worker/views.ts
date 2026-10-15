@@ -1,5 +1,5 @@
 import type { AdminView, ClientView, GameState, ID, MeView, MyBet, PlayerStats, PublicView, RoundPub, RoundRec } from "../shared/types";
-import { activeRound, available, bettingOpen } from "./logic";
+import { activeRound, available, bettingOpen, nightStaked } from "./logic";
 
 function roundPub(s: GameState, r: RoundRec, now: number): RoundPub {
   const bets = s.bets.filter((b) => b.roundId === r.id).sort((a, b) => a.at - b.at);
@@ -41,6 +41,7 @@ function roundPub(s: GameState, r: RoundRec, now: number): RoundPub {
     loserReason: r.status === "resolved" ? r.loserReason : null,
     lines: r.status === "resolved" ? r.lines : {},
     task: r.status === "resolved" ? r.task : null,
+    game: r.game,
     number: s.rounds.filter((x) => x.kind !== "night").indexOf(r) + 1,
     stats,
     staked,
@@ -128,6 +129,8 @@ export function buildPublic(s: GameState, now: number, online: Set<ID>): PublicV
       online: online.has(p.id),
       spark: arr.slice(-24),
       last: last.get(p.id) ?? 0,
+      hat: p.hat,
+      item: p.item,
     };
   });
 
@@ -157,6 +160,10 @@ export function buildPublic(s: GameState, now: number, online: Set<ID>): PublicV
     stats: s.tv.mode === "awards" || s.tv.mode === "winner" ? playerStats(s) : null,
     draw: s.draw,
     missionsDone: s.missions.filter((m) => m.status === "done").length,
+    shouts: s.shouts
+      .filter((x) => !x.hidden)
+      .slice(-15)
+      .map((x) => ({ id: x.id, at: x.at, by: x.anon ? null : x.author, text: x.text, photo: x.photo })),
   };
 }
 
@@ -174,6 +181,7 @@ function buildMe(s: GameState, pid: ID): MeView {
     ledger: s.ledger.filter((e) => e.playerId === pid).slice(-30),
     accusation: latest(s.accusations.filter((a) => a.by === pid)),
     bailout: latest(s.bailouts.filter((b) => b.playerId === pid)),
+    nightStaked: nightStaked(s, pid),
   };
 }
 
@@ -186,6 +194,7 @@ function buildAdmin(s: GameState): AdminView {
     bailouts: [...s.bailouts].reverse(),
     joined: Object.fromEntries(s.players.map((p) => [p.id, p.joinedAt])),
     ledger: s.ledger.slice(-120),
+    shouts: [...s.shouts].reverse(),
   };
 }
 

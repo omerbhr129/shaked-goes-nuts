@@ -124,6 +124,18 @@ export function FeedWatcher({ view, meId }: { view: ClientView; meId: string }) 
       seen.current.add(e.id);
       if (e.kind === "mission") {
         if (!mine.has(e.ref ?? "")) toast(e.text, "info", 4500);
+      } else if (e.kind === "reveal") {
+        if (e.players[0] === meId) {
+          setFlash({ kind: "win", amount: e.data?.amount, title: "🕵️ לא תפסו אותך!", sub: "עבדת עליהם בעיניים. השקדים שלך." });
+          sfx.win();
+          burst("coins");
+        } else if (e.players.slice(1).includes(meId)) {
+          setFlash({ kind: "lose", title: "😵 עבדו עליך!", sub: e.data?.line ?? e.text });
+          sfx.sad();
+          navigator.vibrate?.([200, 80, 200]);
+        } else toast(e.text, "info", 6000);
+      } else if (e.kind === "gift") {
+        if (e.players[1] === meId && e.players[0] !== meId) toast(e.text, "ok", 6000);
       } else if (e.kind === "broke") {
         if (e.players.includes(meId)) {
           setFlash({ kind: "drink", title: "💸 פשטת רגל!", sub: `המשימה שלך: ${e.data?.task ?? "תשאל את המנחה"}. אחרי שתבצע, המנחה יאשר לך חילוץ.` });

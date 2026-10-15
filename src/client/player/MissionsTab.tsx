@@ -1,8 +1,8 @@
 import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useState } from "react";
 import type { ClientView, Mission } from "../../shared/types";
-import { cls, fmt } from "../lib";
-import type { Game } from "../net";
+import { cls, fmt, mmss } from "../lib";
+import { type Game, useServerNow } from "../net";
 import { sfx } from "../sound";
 import { Avatar, Money, Sheet, ask, burst, toast } from "../ui";
 
@@ -21,7 +21,8 @@ export function MissionsTab({ game, view }: { game: Game; view: ClientView }) {
       <header className="missions-head">
         <h2>המשימות הסודיות שלך</h2>
         <p>
-          רק אתם רואים אותן. ביצעתם בלי שאף אחד שם לב? מסמנים ומקבלים את השקדים מיד. אבל מי שתופס אתכם על חם, שורף לכם את המשימה.
+          רק אתם רואים אותן. ביצעתם? לוחצים ״ביצעתי״, והטלוויזיה מכריזה שמשימה בוצעה, בלי שם. אם תוך {view.pub.settings.catchWindow} שניות אף אחד לא תופס אתכם, מי
+          שעבדתם עליו משלם לכם. מי שתופס אתכם גונב לכם את השקדים.
         </p>
         <div className="missions-progress">
           <span>
@@ -42,7 +43,7 @@ export function MissionsTab({ game, view }: { game: Game; view: ClientView }) {
       )}
 
       {missions.map((m) => (
-        <Envelope key={m.id} m={m} game={game} />
+        <Envelope key={m.id} m={m} game={game} view={view} />
       ))}
 
       {allDone && <ExtraMission game={game} />}
@@ -63,9 +64,14 @@ export function MissionsTab({ game, view }: { game: Game; view: ClientView }) {
   );
 }
 
-function Envelope({ m, game }: { m: Mission; game: Game }) {
+function Envelope({ m, game, view }: { m: Mission; game: Game; view: ClientView }) {
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
+  const pending = m.status === "pending";
+  const now = useServerNow(game, pending, 500);
+  const left = pending && m.claimedAt ? Math.max(0, m.claimedAt + view.pub.settings.catchWindow * 1000 - now) : 0;
+  const names = [...new Set(Object.values(m.targets))].map((id) => view.pub.players.find((p) => p.id === id)?.name).filter(Boolean);
+  const payer = names.length ? names.join(" ו") : "הבנק";
 
   // close the letter by itself so nobody reads over your shoulder
   useEffect(() => {
@@ -77,7 +83,7 @@ function Envelope({ m, game }: { m: Mission; game: Game }) {
   const claim = async () => {
     const ok = await ask({
       title: "המשימה בוצעה?",
-      body: `מקבלים ${fmt(m.reward)} שקדים מיד, והטלוויזיה תכריז שמשימה סודית בוצעה (בלי שם). אם מישהו יתפוס אתכם, המשימה תישרף.`,
+      body: `הטלוויזיה תכריז שמשימה סודית בוצעה, בלי שם. לכולם יש ${view.pub.settings.catchWindow} שניות לתפוס אותך. לא תפסו? ${payer} משלם לך ${fmt(m.reward)}. תפסו? התופס גונב לך את השקדים.`,
       ok: "ביצעתי!",
     });
     if (!ok) return;
@@ -87,7 +93,7 @@ function Envelope({ m, game }: { m: Mission; game: Game }) {
       sfx.secret();
       burst("coins");
       navigator.vibrate?.([30, 50, 30]);
-      toast(`🤫 +${fmt(m.reward)}. אף אחד לא יודע. בינתיים.`, "ok");
+      toast(`🤫 ההתראה עלתה. עכשיו תשרוד ${view.pub.settings.catchWindow} שניות…`, "ok");
     } catch (e) {
       toast((e as Error).message, "err");
     } finally {
@@ -96,7 +102,7 @@ function Envelope({ m, game }: { m: Mission; game: Game }) {
   };
 
   const unclaim = async () => {
-    const ok = await ask({ title: "לבטל את הסימון?", body: `ה־${fmt(m.reward)} יורדים והמשימה חוזרת להיות פתוחה.`, ok: "ביטול הסימון" });
+    const ok = await ask({ title: "לבטל את הסימון?", body: "השקדים חוזרים למי ששילם, והמשימה חוזרת להיות פתוחה.", ok: "ביטול הסימון" });
     if (!ok) return;
     setBusy(true);
     try {
@@ -109,7 +115,7 @@ function Envelope({ m, game }: { m: Mission; game: Game }) {
     }
   };
 
-  const hint = m.status === "done" ? "בוצעה" : open ? "הקישו לסגירה" : "הקישו לפתיחה";
+  const hint = m.status === "done" ? "בוצעה" : pending ? `⏳ ${mmss(left)}` : open ? "הקישו לסגירה" : "הקישו לפתיחה";
 
   return (
     <article className={cls("envelope", `st-${m.status}`, open && "unsealed")}>
@@ -145,10 +151,19 @@ function Envelope({ m, game }: { m: Mission; game: Game }) {
           >
             <div className="env-paper">
               <p className="env-text">{m.text}</p>
-              {m.status === "done" ? (
+              {pending ? (
                 <div className="env-done">
                   <span>
-                    בוצעה <Money n={m.reward} sign size={16} />
+                    ⏳ {mmss(left)} לשרוד. לא יתפסו אותך? {payer} משלם לך <Money n={m.reward} size={16} />
+                  </span>
+                  <button type="button" className="link-btn" onClick={unclaim} disabled={busy}>
+                    ביטול
+                  </button>
+                </div>
+              ) : m.status === "done" ? (
+                <div className="env-done">
+                  <span>
+                    בוצעה <Money n={m.reward} sign size={16} /> {names.length > 0 && <small className="muted">({payer} שילם)</small>}
                   </span>
                   <button type="button" className="link-btn" onClick={unclaim} disabled={busy}>
                     ביטול הסימון
@@ -203,7 +218,7 @@ function ExtraMission({ game }: { game: Game }) {
 /** "Caught you!" — accuse someone of doing a mission right now. The host rules on it. */
 function CatchCard({ game, view }: { game: Game; view: ClientView }) {
   const me = view.me!;
-  const { catchReward, falsePenalty } = view.pub.settings;
+  const { falsePenalty } = view.pub.settings;
   const [sheet, setSheet] = useState(false);
   const [suspect, setSuspect] = useState<string | null>(null);
   const [text, setText] = useState("");
@@ -237,7 +252,7 @@ function CatchCard({ game, view }: { game: Game; view: ClientView }) {
         <div>
           <h3>תפסתם מישהו על חם?</h3>
           <p>
-            מנחשים מה המשימה שלו. צדקתם? <b>+{catchReward}</b> והמשימה שלו נשרפת. טעיתם? <b>−{falsePenalty}</b>.
+            מנחשים מה המשימה שלו. צדקתם? גונבים לו את שווי המשימה, והיא נשרפת. טעיתם? <b>{falsePenalty}</b> עוברים אליו.
           </p>
         </div>
       </div>
@@ -247,7 +262,7 @@ function CatchCard({ game, view }: { game: Game; view: ClientView }) {
         <>
           {acc && (
             <p className="catch-status">
-              {acc.status === "right" ? `✅ צדקת לגבי ${nameOf(acc.suspect)}! +${catchReward}` : `❌ טעית לגבי ${nameOf(acc.suspect)}. −${falsePenalty}`}
+              {acc.status === "right" ? `✅ צדקת לגבי ${nameOf(acc.suspect)}! גנבת לו את השקדים` : `❌ טעית לגבי ${nameOf(acc.suspect)}. ${falsePenalty} עברו אליו`}
             </p>
           )}
           <button type="button" className="btn btn-ghost" onClick={() => setSheet(true)}>

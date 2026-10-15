@@ -128,18 +128,19 @@ export function RoundScreen({ view, game }: { view: ClientView; game: Game }) {
 
   // A fresh result: drum roll → the reveal → the winners as kings → the losers and their task.
   const resolvedKey = r.status === "resolved" ? `${r.id}:${r.resolvedAt}` : null;
-  const [phase, setPhase] = useState<"suspense" | "reveal" | "win" | "lose" | null>(null);
+  const [phase, setPhase] = useState<"suspense" | "reveal" | "duel" | "win" | "lose" | null>(null);
   useLayoutEffect(() => {
     if (!resolvedKey || !r.resolvedAt || Date.now() + game.offset - r.resolvedAt > 8000) {
       setPhase(null);
       return;
     }
     const L = r.lines ?? {};
-    for (const k of ["win", "lose"]) if (L[k]) prefetchLine(`round:${r.id}:${k}`);
+    for (const k of ["duel", "win", "lose"]) if (L[k]) prefetchLine(`round:${r.id}:${k}`);
     const steps: [typeof phase, number][] = [
       ["suspense", 1750],
       ["reveal", 3200],
     ];
+    if (L.duel) steps.push(["duel", 7000]);
     if (L.win) steps.push(["win", 6500]);
     if (L.lose) steps.push(["lose", 8500]);
     return runSteps(
@@ -151,8 +152,13 @@ export function RoundScreen({ view, game }: { view: ClientView; game: Game }) {
           sfx.win();
           burst("big");
         }
-        if (ph === "win") {
+        if (ph === "duel") {
           sfx.fanfare();
+          burst("big");
+          speak(`round:${r.id}:duel`);
+        }
+        if (ph === "win") {
+          sfx.coin();
           speak(`round:${r.id}:win`);
         }
         if (ph === "lose") {
@@ -190,6 +196,8 @@ export function RoundScreen({ view, game }: { view: ClientView; game: Game }) {
   const secret = r.status === "open";
   const winners = (r.results ?? []).filter((x) => x.delta > 0).map((x) => people[x.playerId]).filter((p): p is PlayerPub => !!p);
   const losers = r.losers.map((id) => people[id]).filter((p): p is PlayerPub => !!p);
+  const champId = r.options.find((o) => o.id === r.winnerId)?.playerId;
+  const champ = champId ? people[champId] : undefined;
 
   return (
     <div className={cls("tvround", many && "many")}>
@@ -273,6 +281,17 @@ export function RoundScreen({ view, game }: { view: ClientView; game: Game }) {
           <motion.div key="unveil" className="unveil" initial={{ scale: 0.4, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 1.4, opacity: 0 }} transition={{ type: "spring", stiffness: 240, damping: 15 }}>
             🔓 ההימורים נחשפים!
           </motion.div>
+        )}
+        {phase === "duel" && champ && (
+          <Spotlight
+            key="duel"
+            kind="champ"
+            title={`🏆 ${champ.name} ניצח!`}
+            people={[champ]}
+            img={(p) => `/photos/ai/champ/${r.game ?? "champ"}/${p.id}.jpg`}
+            line={r.lines.duel}
+            task={r.lines.duelLoser ? `${r.lines.duelLoser}: לשתות! 🍺` : undefined}
+          />
         )}
         {phase === "win" && winners.length > 0 && (
           <Spotlight key="win" kind="win" title={winners.length === 1 ? "👑 המלך!" : "👑 צדקו!"} people={winners} line={r.lines.win} amount={winners.length === 1 ? deltaOf(winners[0].id) : undefined} />

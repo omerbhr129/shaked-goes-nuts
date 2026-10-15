@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { Bet, ClientView, PlayerPub, RoundKind, RoundOption, RoundPub, RoundRec, RoundStatus } from "../../shared/types";
+import { GAMES } from "../../shared/catalog";
 import { LETTERS, cls, fmt, fmtX, mmss, multiplier, potOf, resizeImage } from "../lib";
 import { type Game, useServerNow } from "../net";
 import { Avatar, Money, Sheet, ask, toast } from "../ui";
@@ -34,6 +35,7 @@ export function RoundsTab({ game, view, run }: { game: Game; view: ClientView; r
           </div>
         </div>
       )}
+      {!busyElsewhere && <QuickDuel view={view} run={run} />}
       {live && (live.kind === "quiz" ? <LiveQuiz game={game} view={view} run={run} /> : <LiveRound game={game} view={view} run={run} />)}
 
       <div className="section-head">
@@ -150,6 +152,52 @@ export function RoundsTab({ game, view, run }: { game: Game; view: ClientView; r
         )}
       </Sheet>
     </section>
+  );
+}
+
+/** Pick a game and two guys: betting opens right away, and the winner gets his own picture. */
+function QuickDuel({ view, run }: { view: ClientView; run: Run }) {
+  const [game, setGame] = useState("pingpong");
+  const [a, setA] = useState<string | null>(null);
+  const [b, setB] = useState<string | null>(null);
+  const name = (id: string | null) => view.pub.players.find((p) => p.id === id)?.name ?? "";
+  const pick = (id: string) => {
+    if (a === id) setA(null);
+    else if (b === id) setB(null);
+    else if (!a) setA(id);
+    else setB(id);
+  };
+  return (
+    <div className="duel-builder felt">
+      <h3>⚔️ דו-קרב מהיר</h3>
+      <div className="choice-row duel-games">
+        {Object.entries(GAMES).map(([k, g]) => (
+          <button key={k} type="button" className={cls("btn btn-s", game === k ? "btn-gold" : "btn-ghost")} onClick={() => setGame(k)}>
+            {g.emoji} {g.name}
+          </button>
+        ))}
+      </div>
+      <div className="player-chips">
+        {view.pub.players.map((p) => (
+          <button key={p.id} type="button" className={cls("pchip", (a === p.id || b === p.id) && "on")} onClick={() => pick(p.id)}>
+            <Avatar p={p} size={24} /> {p.name}
+          </button>
+        ))}
+      </div>
+      <button
+        type="button"
+        className="btn btn-gold"
+        disabled={!a || !b}
+        onClick={async () => {
+          if (await run("quickDuel", { game, a, b }, "הדו-קרב נפתח להימורים")) {
+            setA(null);
+            setB(null);
+          }
+        }}
+      >
+        {a && b ? `⚔️ ${GAMES[game].name}: ${name(a)} נגד ${name(b)}` : "בחרו שני שחקנים"}
+      </button>
+    </div>
   );
 }
 

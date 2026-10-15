@@ -1,7 +1,8 @@
 import { DurableObject } from "cloudflare:workers";
 import type { GameState, ID } from "../shared/types";
 import type { Env } from "./env";
-import { GameError, activeRound, closeQuiz, dispatch, newId, normalize } from "./logic";
+import { REACTIONS } from "../shared/catalog";
+import { GameError, dispatch, newId, nextDue, normalize, tick } from "./logic";
 import { seedState } from "./seed";
 import { buildPublic, viewFor } from "./views";
 
@@ -16,7 +17,7 @@ const PARTS = ["players", "rounds", "bets", "missions", "ledger"] as const;
 const IMG_CHUNK = 96 * 1024;
 
 const VOICE =
-  "Speak natural Israeli Hebrew. You are an over-the-top, sarcastic game-show announcer at a wild bachelor party: loud, energetic, punchy, with comedic timing. Never translate, read exactly what is written.";
+  "Speak natural Israeli Hebrew like a loud, cocky Israeli street guy (an ars) hosting a wild bachelor party: rough, slangy, high energy, sarcastic, with great comedic timing. Read exactly what is written, swear words included. Never translate or soften anything.";
 
 const json = (data: unknown, status = 200) =>
   new Response(JSON.stringify(data), {
@@ -146,6 +147,7 @@ export class GameRoom extends DurableObject<Env> {
     }
     const a = String(body?.a ?? "");
     const p = (body?.p && typeof body.p === "object" ? body.p : {}) as Record<string, unknown>;
+    if (a === "react") return this.react(token, p);
 
     const backup = structuredClone(this.s);
     let r: unknown;
@@ -167,11 +169,36 @@ export class GameRoom extends DurableObject<Env> {
           if (att.sid === sid) ws.serializeAttachment({ ...att, token: viewToken } satisfies Att);
     }
 
+    tick(this.s, Date.now());
     this.s.v++;
     await this.save();
     await this.syncAlarm();
     this.broadcast();
     return json({ ok: true, r: r ?? null, d: this.view(viewToken, key) });
+  }
+
+  /* ---------- emojis thrown at the TV: not saved, just passed along, a few per second at most ---------- */
+
+  private recent = new Map<ID, number[]>();
+
+  private react(token: string | null, p: Record<string, unknown>) {
+    const pid = this.playerId(token);
+    if (!pid) return json({ ok: false, err: "צריך להתחבר מחדש. בחרו את השם שלכם" });
+    const e = String(p.emoji ?? "");
+    if (!REACTIONS.includes(e)) return json({ ok: false, err: "אימוג׳י לא מוכר" });
+    const now = Date.now();
+    const times = (this.recent.get(pid) ?? []).filter((t) => now - t < 3000);
+    if (times.length >= 5) return json({ ok: false, err: "לאט לאט 🙂" });
+    times.push(now);
+    this.recent.set(pid, times);
+    const msg = JSON.stringify({ t: "fx", d: { kind: "emoji", e, by: pid } });
+    for (const { ws } of this.sockets())
+      try {
+        ws.send(msg);
+      } catch {
+        /* socket went away */
+      }
+    return json({ ok: true, r: null });
   }
 
   /* ---------- images (stored in chunks so any size under the cap fits) ---------- */
@@ -293,22 +320,18 @@ export class GameRoom extends DurableObject<Env> {
   /* ---------- betting countdown ---------- */
 
   private async syncAlarm() {
-    const r = activeRound(this.s);
-    if (r && r.status === "open" && r.closesAt) await this.ctx.storage.setAlarm(r.closesAt);
+    const due = nextDue(this.s);
+    if (due) await this.ctx.storage.setAlarm(Math.max(due, Date.now() + 50));
     else await this.ctx.storage.deleteAlarm();
   }
 
+  /** Betting closing, missions paying out: whatever is due now. */
   async alarm() {
-    const r = activeRound(this.s);
-    if (!r || r.status !== "open" || !r.closesAt) return;
-    if (Date.now() < r.closesAt - 30) {
-      await this.ctx.storage.setAlarm(r.closesAt);
-      return;
+    if (tick(this.s, Date.now())) {
+      this.s.v++;
+      await this.save();
+      this.broadcast();
     }
-    if (r.kind === "quiz") closeQuiz(this.s, r, Date.now());
-    else r.status = "closed";
-    this.s.v++;
-    await this.save();
-    this.broadcast();
+    await this.syncAlarm();
   }
 }
