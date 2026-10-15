@@ -343,6 +343,9 @@ export function Sheet({
             onClick={(e) => e.stopPropagation()}
           >
             <div className="sheet-grip" aria-hidden="true" />
+            <button type="button" className="sheet-x" onClick={onClose} aria-label="סגירה">
+              ✕
+            </button>
             {title && <h2 className="sheet-title">{title}</h2>}
             <div className="sheet-body">{children}</div>
           </motion.div>

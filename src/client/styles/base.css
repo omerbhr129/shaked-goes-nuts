@@ -526,6 +526,38 @@ select {
   max-width: 760px;
 }
 
+.sheet {
+  position: relative;
+}
+
+.sheet-x {
+  position: absolute;
+  top: 10px;
+  inset-inline-end: 12px;
+  z-index: 2;
+  width: 42px;
+  height: 42px;
+  border: 0;
+  border-radius: 50%;
+  font-size: 18px;
+  color: var(--almond);
+  background: rgba(0, 0, 0, 0.3);
+  cursor: pointer;
+}
+
+/* the main button of a long sheet stays in view while the rest scrolls */
+.sheet-cta {
+  position: sticky;
+  bottom: calc(-20px - env(safe-area-inset-bottom));
+  margin: 0 -18px calc(-20px - env(safe-area-inset-bottom));
+  padding: 14px 18px calc(16px + env(safe-area-inset-bottom));
+  background: linear-gradient(180deg, rgba(10, 46, 33, 0), #0a2e21 28%);
+}
+
+.sheet-cta .btn {
+  width: 100%;
+}
+
 .sheet-grip {
   width: 44px;
   height: 5px;

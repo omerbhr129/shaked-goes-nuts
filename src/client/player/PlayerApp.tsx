@@ -166,9 +166,11 @@ function HowTo({ view, me, open, onClose }: { view: ClientView; me: PlayerPub; o
           <b>🍋 המקום האחרון בבוקר:</b> {prizeLast}.
         </li>
       </ul>
-      <button type="button" className="btn btn-gold btn-xl" onClick={onClose}>
-        יאללה, מתחילים
-      </button>
+      <div className="sheet-cta">
+        <button type="button" className="btn btn-gold btn-xl" onClick={onClose}>
+          יאללה, מתחילים
+        </button>
+      </div>
     </Sheet>
   );
 }
