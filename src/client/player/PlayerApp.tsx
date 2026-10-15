@@ -21,10 +21,24 @@ export function PlayerApp() {
   // on a laptop / big screen everything sits side by side instead of behind tabs
   const wide = useMedia("(min-width: 1080px)");
 
-  // The host released this name (or reset the game): forget the stale token.
+  // The host released this name (or reset the game): forget the stale token. But a socket that said
+  // hello before a join can answer "not logged in" right after it, so check with the server first.
   useEffect(() => {
-    if (view && !view.me && creds.token && status === "online") creds.token = null;
-  }, [view, status]);
+    if (!view || view.me || !creds.token || status !== "online") return;
+    const token = creds.token;
+    let alive = true;
+    fetch("/api/view", { headers: { "x-token": token }, cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((v: ClientView | null) => {
+        if (!alive || !v || creds.token !== token) return;
+        if (!v.me) creds.token = null;
+        game.rehello();
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [view, status, game]);
 
   // A freshly opened challenge pulls everyone to the betting tab.
   const round = view?.pub.round;

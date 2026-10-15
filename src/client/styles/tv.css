@@ -2326,3 +2326,248 @@ html.is-tv body {
   opacity: 1;
   pointer-events: auto;
 }
+
+/* ---------- the room's log, on the side (lobby and rounds) ---------- */
+
+.chat {
+  position: absolute;
+  top: 24px;
+  bottom: 80px;
+  left: 0;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  width: 430px;
+  padding: 18px 22px 10px 24px;
+  background: linear-gradient(90deg, rgba(2, 12, 8, 0.82) 70%, rgba(2, 12, 8, 0));
+  pointer-events: none;
+}
+
+.chat-head {
+  font-family: var(--display);
+  font-weight: 800;
+  font-size: 26px;
+  color: var(--gold-hi);
+}
+
+.chat-lines {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  gap: 10px;
+  overflow: hidden;
+  mask-image: linear-gradient(transparent, #000 22%);
+}
+
+.chat-line {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  font-size: 23px;
+  line-height: 1.3;
+}
+
+.chat-line .avatar-wrap,
+.chat-line > .avatar {
+  margin-top: 2px;
+}
+
+.chat-text {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.chat-text b {
+  color: var(--gold-hi);
+}
+
+.chat-line.sys .chat-text {
+  color: var(--almond-dim);
+}
+
+.chat-line.gift .chat-text {
+  color: #ffd1e8;
+}
+
+.chat-line.emoji .chat-text {
+  font-size: 28px;
+}
+
+.chat-dot {
+  flex: none;
+  width: 38px;
+  height: 38px;
+  display: grid;
+  place-items: center;
+  font-size: 22px;
+}
+
+/* the screens make room for it */
+.has-chat .tvround,
+.has-chat .tvquiz {
+  padding-left: 460px;
+}
+
+.has-chat .lobby {
+  padding-left: 470px;
+  grid-template-columns: 560px 1fr;
+  gap: 26px 60px;
+}
+
+.has-chat .lobby .cert-photo {
+  width: 300px;
+  height: 350px;
+}
+
+/* the lobby once everybody is in */
+.lobby-players.hidden {
+  display: none;
+}
+
+.lobby-nudge {
+  margin: 0;
+  font-family: var(--display);
+  font-weight: 800;
+  font-size: 40px;
+  line-height: 1.2;
+  color: #fff8e6;
+}
+
+.lobby-crowd {
+  display: grid;
+  grid-template-columns: repeat(4, 150px);
+  gap: 22px 26px;
+}
+
+.crowd-p {
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  font-size: 26px;
+  font-weight: 800;
+}
+
+/* ---------- גלגל הבלגן ---------- */
+
+.bigwheel {
+  position: absolute;
+  inset: 0;
+  z-index: 44;
+  display: grid;
+  grid-template-rows: auto 1fr;
+  justify-items: center;
+  padding-top: 18px;
+  background-color: #04170f;
+  background-image:
+    radial-gradient(60% 70% at 50% 55%, rgba(233, 185, 73, 0.22), transparent 70%),
+    radial-gradient(120% 90% at 50% 30%, #1c6b4d 0%, #0b3b2b 50%, #04170f 100%),
+    var(--noise);
+}
+
+.bw-title {
+  font-family: var(--display);
+  font-weight: 900;
+  font-size: 92px;
+  line-height: 1;
+  color: var(--gold-hi);
+  text-shadow:
+    0 6px 0 rgba(0, 0, 0, 0.45),
+    0 0 50px rgba(233, 185, 73, 0.5);
+}
+
+.bw-stage {
+  position: relative;
+  width: 860px;
+  height: 860px;
+  margin-top: 6px;
+}
+
+.bw-wheel {
+  width: 100%;
+  height: 100%;
+  filter: drop-shadow(0 30px 60px rgba(0, 0, 0, 0.6));
+}
+
+.bw-pointer {
+  position: absolute;
+  top: -14px;
+  left: 50%;
+  z-index: 2;
+  width: 0;
+  height: 0;
+  translate: -50% 0;
+  border-left: 34px solid transparent;
+  border-right: 34px solid transparent;
+  border-top: 66px solid var(--gold-hi);
+  filter: drop-shadow(0 6px 8px rgba(0, 0, 0, 0.6));
+}
+
+.bw-pointer::after {
+  content: "";
+  position: absolute;
+  top: -60px;
+  left: -12px;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: #8e1b22;
+  box-shadow: inset 0 -3px 0 rgba(0, 0, 0, 0.3);
+}
+
+.bw-bulb {
+  fill: #fff8e6;
+  animation: bw-blink 0.5s steps(2, jump-none) infinite;
+}
+
+.bw-bulb.odd {
+  animation-delay: 0.25s;
+}
+
+.bigwheel.landed .bw-bulb {
+  animation-duration: 0.18s;
+}
+
+@keyframes bw-blink {
+  50% {
+    fill: #e9b949;
+    opacity: 0.35;
+  }
+}
+
+.bw-result {
+  position: absolute;
+  bottom: 70px;
+  left: 50%;
+  translate: -50% 0;
+  z-index: 3;
+  display: grid;
+  justify-items: center;
+  gap: 6px;
+  max-width: 1500px;
+  padding: 22px 56px 28px;
+  border-radius: 34px;
+  text-align: center;
+  color: var(--ink);
+  background: linear-gradient(180deg, var(--gold-hi), var(--gold));
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.6);
+}
+
+.bw-result span {
+  font-size: 34px;
+  font-weight: 800;
+}
+
+.bw-result b {
+  font-family: var(--display);
+  font-size: 58px;
+  font-weight: 900;
+  line-height: 1.15;
+  text-wrap: balance;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bw-bulb {
+    animation: none;
+  }
+}

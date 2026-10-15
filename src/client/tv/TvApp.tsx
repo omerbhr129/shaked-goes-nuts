@@ -4,10 +4,10 @@ import type { ClientView, FeedEvent, PlayerPub, TvMode, WheelSpin } from "../../
 import { cls, keepAwake } from "../lib";
 import { RodeoPhoto, useIntro } from "../rodeo";
 import { type Game, useGame, useServerNow } from "../net";
-import { prefetchLine, sfx, silence, speak, unlockAudio } from "../sound";
+import { prefetchLine, setMuted, sfx, silence, speak, unlockAudio } from "../sound";
 import { Avatar, Marquee, Ticker, burst } from "../ui";
-import { CatchClock, FxLayer, MusicDirector, MysterySpot, ShoutsLayer } from "./Live";
-import { BettingVibes, DRAW_MS, DrawReel, Spotlight, holdTv, tvBusy } from "./Moments";
+import { CatchClock, ChatLog, FxLayer, MusicDirector, MysterySpot, ShoutsLayer } from "./Live";
+import { BettingVibes, BigWheel, Spotlight, holdTv, spinLength, tvBusy } from "./Moments";
 import { AwardsScreen, BoardScreen, Lobby, NightScreen, QuizScreen, RevealScreen, RoundScreen, WinnerScreen } from "./Screens";
 
 // the host screen embeds a silent copy of the TV as a preview
@@ -46,6 +46,8 @@ export function TvApp() {
 
   // sound only: full screen has its own button (and the F key), so there is always a way back out
   const arm = () => {
+    // a mute saved by another page on this browser (/admin, /) must not silence the TV
+    setMuted(false);
     unlockAudio();
     sfx.join();
     void keepAwake();
@@ -66,10 +68,12 @@ export function TvApp() {
 
   const mode = effectiveMode(view);
   const sceneKey = mode === "round" ? `round:${view.pub.round?.id}` : mode;
+  // the room's log sits on the side of the screens that have room for it
+  const chat = mode === "lobby" || mode === "round";
   return (
     <>
       <Stage>
-        <div className="tv-frame">
+        <div className={cls("tv-frame", chat && "has-chat")}>
           <AnimatePresence mode="wait">
             <motion.div
               key={sceneKey}
@@ -89,8 +93,9 @@ export function TvApp() {
             </motion.div>
           </AnimatePresence>
           <Ticker players={view.pub.players} start={view.pub.settings.startBalance} />
-          <RoundExtras view={view} game={game} />
-          <ShoutsLayer shouts={view.pub.shouts} players={view.pub.players} feed={view.pub.feed} />
+          <RoundExtras view={view} game={game} avoidLeft={chat} />
+          {chat && <ChatLog view={view} game={game} />}
+          <ShoutsLayer shouts={view.pub.shouts} players={view.pub.players} feed={view.pub.feed} bubbles={!chat} />
           <FxLayer game={game} />
           <CatchClock feed={view.pub.feed} game={game} />
           <MusicDirector view={view} game={game} armed={armed} />
@@ -137,7 +142,7 @@ function FullscreenToggle() {
       hide = window.setTimeout(() => setShown(false), 3000);
     };
     const key = (e: KeyboardEvent) => {
-      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      if (e.metaKey || e.ctrlKey || e.altKey || e.repeat) return;
       if (e.key === "f" || e.key === "F" || e.key === "כ") void toggleFullscreen();
     };
     document.addEventListener("fullscreenchange", sync);
@@ -182,17 +187,18 @@ function useTvSounds(view: ClientView | null) {
 }
 
 /** While a round is live: the draw reel when it was picked at random, then music and Itay popping up until bets close. */
-function RoundExtras({ view, game }: { view: ClientView; game: Game }) {
+function RoundExtras({ view, game, avoidLeft }: { view: ClientView; game: Game; avoidLeft: boolean }) {
   const r = view.pub.round;
   const draw = view.pub.draw;
   const live = !!r && r.status === "open";
-  const now = useServerNow(game, live, 250);
-  const drawing = live && !!draw && draw.roundId === r!.id && now < draw.at + DRAW_MS;
+  const spinning = !!draw && Date.now() + game.offset < draw.at + spinLength(draw);
+  const now = useServerNow(game, live || spinning, 250);
+  const drawing = !!draw && now < draw.at + spinLength(draw);
   const betting = live && !drawing && view.pub.tv.mode === "round" && (r!.closesAt === null || now < r!.closesAt);
   return (
     <>
-      <BettingVibes active={betting} />
-      <AnimatePresence>{drawing && draw && <DrawReel key={draw.at} draw={draw} />}</AnimatePresence>
+      <BettingVibes active={betting} avoidLeft={avoidLeft} />
+      <AnimatePresence>{drawing && draw && <BigWheel key={draw.at} draw={draw} players={view.pub.players} feed={view.pub.feed} />}</AnimatePresence>
     </>
   );
 }
@@ -211,7 +217,7 @@ function NewsBanner({ feed, players, skipShots, offset }: { feed: FeedEvent[]; p
     }
     // the wheel and the quiz screen show their own big moments
     // gifts have their own lane (the bubbles); big moments jump ahead of the small news
-    const fresh = feed.filter((e) => !seen.current!.has(e.id) && e.kind !== "wheel" && e.kind !== "gift" && !(skipShots && e.kind === "shot"));
+    const fresh = feed.filter((e) => !seen.current!.has(e.id) && e.kind !== "wheel" && e.kind !== "gift" && e.kind !== "spin" && !(skipShots && e.kind === "shot"));
     for (const e of feed) seen.current.add(e.id);
     if (fresh.length)
       setQueue((q) => {
@@ -326,13 +332,16 @@ function WheelOverlay({ wheel, players, offset, feed }: { wheel: WheelSpin | nul
   useEffect(() => {
     if (!wheel || wheel.id === shown.current) return;
     shown.current = wheel.id;
-    if (Date.now() + offset - wheel.at > 20_000) return;
-    setPhase("spin");
+    if (Date.now() + offset - wheel.at > 40_000) return;
+    // don't cover a result that is still playing: start when the screen is free
+    const wait = Math.max(0, tvBusy.until - Date.now());
+    holdTv(wait + 16_000);
     const timers: number[] = [];
+    timers.push(window.setTimeout(() => setPhase("spin"), wait));
     let t = 0;
     let gap = 55;
     while (t < 5200) {
-      timers.push(window.setTimeout(() => sfx.wheelTick(), t));
+      timers.push(window.setTimeout(() => sfx.wheelTick(), wait + t));
       gap *= 1.07;
       t += gap;
     }
@@ -344,9 +353,9 @@ function WheelOverlay({ wheel, players, offset, feed }: { wheel: WheelSpin | nul
         sfx.ding();
         burst("win");
         if (said) speak(`feed:${said.id}`);
-      }, 5400),
+      }, wait + 5400),
     );
-    timers.push(window.setTimeout(() => setPhase(null), 16_000));
+    timers.push(window.setTimeout(() => setPhase(null), wait + 16_000));
     return () => timers.forEach((x) => window.clearTimeout(x));
   }, [wheel?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -357,7 +366,7 @@ function WheelOverlay({ wheel, players, offset, feed }: { wheel: WheelSpin | nul
   const who = wheel.players.map((id) => players.find((p) => p.id === id)).filter((p): p is PlayerPub => !!p);
 
   return (
-    <motion.div className="wheel-overlay" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+    <motion.div key={wheel.id} className="wheel-overlay" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
       <div className="wheel-title">{wheel.kind === "punish" ? "🍋 גלגל העונשים" : "🎡 גלגל השתייה"}</div>
       <div className="wheel-wrap">
         <div className="wheel-pointer" aria-hidden="true" />
@@ -366,11 +375,13 @@ function WheelOverlay({ wheel, players, offset, feed }: { wheel: WheelSpin | nul
           {wheel.segments.map((label, i) => {
             const [bg, fg] = WHEEL_COLORS[i % WHEEL_COLORS.length];
             const mid = i * seg + seg / 2;
+            const rest = (((mid + target) % 360) + 360) % 360;
+            const turn = rest > 0 && rest < 180 ? 270 : 90;
             return (
               <g key={i}>
                 <path d={arc(i * seg, (i + 1) * seg, 98)} fill={bg} stroke="#4A2A12" strokeWidth="0.8" />
                 <g transform={`rotate(${mid})`}>
-                  <text x="0" y="-56" transform="rotate(90 0 -56)" fill={fg} fontSize={n > 8 ? 6.2 : 7.2} fontWeight="800" textAnchor="middle" dominantBaseline="middle" fontFamily="Rubik, sans-serif">
+                  <text x="0" y="-56" transform={`rotate(${turn} 0 -56)`} fill={fg} fontSize={n > 8 ? 6.2 : 7.2} fontWeight="800" textAnchor="middle" dominantBaseline="middle" fontFamily="Rubik, sans-serif">
                     {short(label)}
                   </text>
                 </g>

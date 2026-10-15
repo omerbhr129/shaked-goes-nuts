@@ -5,7 +5,7 @@ export type MissionStatus = "open" | "pending" | "done" | "burned";
 export type RoundStatus = "draft" | "open" | "closed" | "resolved";
 export type RoundKind = "challenge" | "night" | "quiz";
 export type TvMode = "lobby" | "round" | "board" | "night" | "missions" | "awards" | "winner";
-export type FeedKind = "mission" | "reveal" | "caught" | "miss" | "bailout" | "wheel" | "result" | "shot" | "broke" | "gift";
+export type FeedKind = "mission" | "reveal" | "caught" | "miss" | "bailout" | "wheel" | "result" | "shot" | "broke" | "gift" | "spin";
 export type TargetSlot = "G" | "X" | "Y";
 export type WheelKind = "drink" | "punish";
 
@@ -105,10 +105,18 @@ export interface RoundRec {
 }
 
 /** A round picked at random by the host: the TV spins a reel of titles before it opens. */
+/** גלגל הבלגן: the host spins, the TV shows a wheel of rounds and surprises, and it lands on one. */
 export interface DrawState {
   at: number;
-  roundId: ID;
+  /** the round it landed on (null when it landed on a surprise) */
+  roundId: ID | null;
+  /** the wheel's segments, and which one it lands on */
   titles: string[];
+  /** per segment: "c" challenge, "q" question, "s" surprise */
+  kinds: string[];
+  index: number;
+  /** the surprise it landed on, e.g. "shots" */
+  surprise: string | null;
 }
 
 export interface Bet {
@@ -174,7 +182,7 @@ export interface FeedEvent {
   players: ID[];
   ref: ID | null;
   /** for the big TV moments: the line on its own, the task, the almonds, how long to catch */
-  data?: { line?: string; task?: string; amount?: number; until?: number; mission?: ID };
+  data?: { line?: string; task?: string; amount?: number; until?: number; mission?: ID; surprise?: string };
 }
 
 export interface WheelSpin {

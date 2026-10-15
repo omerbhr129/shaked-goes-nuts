@@ -22,6 +22,7 @@ export const SHOP: ShopItem[] = [
   { id: "champagne", emoji: "🍾", name: "שמפניה", price: 30, slot: "item" },
   { id: "cocktail", emoji: "🍹", name: "קוקטייל", price: 20, slot: "item" },
   { id: "cigar", emoji: "🚬", name: "סיגריה", price: 20, slot: "item" },
+  { id: "falafel", emoji: "🧆", name: "פלאפל", price: 15, slot: "item" },
   { id: "rose", emoji: "🌹", name: "ורד", price: 20, slot: "item" },
   { id: "bottle", emoji: "🍼", name: "בקבוק תינוק", price: 10, slot: "item" },
   { id: "tp", emoji: "🧻", name: "נייר טואלט", price: 10, slot: "item" },

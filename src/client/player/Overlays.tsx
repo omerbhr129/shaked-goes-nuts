@@ -1,4 +1,4 @@
-import { AnimatePresence, motion } from "motion/react";
+import { AnimatePresence, motion, useIsPresent } from "motion/react";
 import { useEffect, useRef, useState } from "react";
 import type { ClientView, RoundPub } from "../../shared/types";
 import { cls, lsGet, lsSet } from "../lib";
@@ -23,10 +23,15 @@ function useFlash() {
 }
 
 function FlashView({ flash, onClose }: { flash: Flash | null; onClose: () => void }) {
+  return <AnimatePresence>{flash && <FlashCard key={flash.title + flash.sub} flash={flash} onClose={onClose} />}</AnimatePresence>;
+}
+
+function FlashCard({ flash, onClose }: { flash: Flash; onClose: () => void }) {
+  const present = useIsPresent();
   return (
-    <AnimatePresence>
-      {flash && (
-        <motion.div className={cls("flash", flash.kind)} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={onClose} role="alert">
+    <>
+      {(
+        <motion.div className={cls("flash", flash.kind)} style={{ pointerEvents: present ? "auto" : "none" }} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={onClose} role="alert">
           <motion.div className="flash-card" initial={{ scale: 0.6, rotate: -4 }} animate={{ scale: 1, rotate: 0 }} transition={{ type: "spring", stiffness: 300, damping: 16 }}>
             <div className="flash-title">{flash.title}</div>
             {flash.amount !== undefined && <Money n={flash.amount} sign size={40} className="flash-amount" />}
@@ -34,7 +39,7 @@ function FlashView({ flash, onClose }: { flash: Flash | null; onClose: () => voi
           </motion.div>
         </motion.div>
       )}
-    </AnimatePresence>
+    </>
   );
 }
 
@@ -136,6 +141,15 @@ export function FeedWatcher({ view, meId }: { view: ClientView; meId: string }) 
         } else toast(e.text, "info", 6000);
       } else if (e.kind === "gift") {
         if (e.players[1] === meId && e.players[0] !== meId) toast(e.text, "ok", 6000);
+      } else if (e.kind === "spin") {
+        const wait = e.data?.until ? Math.max(0, e.data.until - Date.now()) : 0;
+        window.setTimeout(() => {
+          if (e.players.includes(meId) && e.data?.surprise !== "rain") {
+            setFlash({ kind: "drink", title: e.text.split(" ").slice(1, 4).join(" "), sub: e.data?.line ?? e.text });
+            sfx.ding();
+            navigator.vibrate?.([120, 60, 120]);
+          } else toast(e.text, "info", 6000);
+        }, wait);
       } else if (e.kind === "broke") {
         if (e.players.includes(meId)) {
           setFlash({ kind: "drink", title: "💸 פשטת רגל!", sub: `המשימה שלך: ${e.data?.task ?? "תשאל את המנחה"}. אחרי שתבצע, המנחה יאשר לך חילוץ.` });
@@ -150,7 +164,7 @@ export function FeedWatcher({ view, meId }: { view: ClientView; meId: string }) 
         sfx.ding();
         navigator.vibrate?.([120, 60, 120, 60, 300]);
       } else if (e.kind === "caught" && e.players[0] === meId) {
-        setFlash({ kind: "win", amount: view.pub.settings.catchReward, title: "🕵️ צדקת!", sub: "תפסת אותו על חם. המשימה שלו נשרפה." });
+        setFlash({ kind: "win", amount: e.data?.amount ?? view.pub.settings.catchReward, title: "🕵️ צדקת!", sub: "תפסת אותו על חם וגנבת לו את השקדים." });
         sfx.win();
       } else if (e.kind === "caught" && e.players[1] === meId) {
         // the burned-mission flash covers this

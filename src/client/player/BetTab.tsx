@@ -36,9 +36,9 @@ function DrawCard() {
   return (
     <div className="qcard felt drawcard" role="status">
       <span className="drawcard-slot" aria-hidden="true">
-        🎰
+        🎡
       </span>
-      <h2>מגרילים את הסיבוב הבא…</h2>
+      <h2>גלגל הבלגן מסתובב…</h2>
       <p className="muted center">תסתכלו על הטלוויזיה. עוד שנייה זה מתחיל.</p>
     </div>
   );

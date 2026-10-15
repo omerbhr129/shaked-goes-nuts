@@ -71,7 +71,6 @@ const CHALLENGES: RoundSeed[] = [
 const QUIZ: QuizSeed[] = [
   ["🍕", "אוכל אחד לכל החיים. מה איתי בוחר?", "כולם עונים, ואז איתי אומר את התשובה שלו בקול.", labels("פיצה", "שווארמה", "סושי", "המבורגר"), null, ["itay"]],
   ["🥜", "שקד הוא בעצם…", "שאלת ידע. יש רק תשובה אחת נכונה.", labels("אגוז", "זרע של פרי", "קטנייה", "גרעין של תמר"), "o2", []],
-  ["❤️", "מי אמר ״אני אוהב אותך״ ראשון?", "איתי עונה. אסור לשקר, שחף תבדוק.", labels("איתי", "שחף"), null, ["itay"]],
   ["😴", "כמה שעות איתי ישן בלילה רגיל?", "איתי עונה.", labels("פחות מ־6", "6", "7", "8 ומעלה"), null, ["itay"]],
   ["🌍", "איזו מדינה מגדלת הכי הרבה שקדים בעולם?", "שאלת ידע.", labels("ארצות הברית", "ספרד", "איראן", "טורקיה"), "o1", []],
   ["👶", "כמה ילדים איתי רוצה?", "איתי עונה.", labels("1", "2", "3", "4 ומעלה"), null, ["itay"]],
@@ -161,10 +160,17 @@ const MISSIONS: MissionSeed[] = [
   ["תגרום ל{X} לעמוד לידך במנגל ולהגיד ״כן, שף״", 100, "groom"],
 ];
 
+/** Ids that say nothing: an alert carries the mission id, and ordered ids would give away whose list it came from. */
+function randomId() {
+  const a = new Uint8Array(8);
+  crypto.getRandomValues(a);
+  return [...a].map((b) => "abcdefghijkmnpqrstuvwxyz23456789"[b % 32]).join("");
+}
+
 export const DEFAULT_SETTINGS: Settings = {
   currency: "שקדים",
   startBalance: 1000,
-  allowJoinNew: true,
+  allowJoinNew: false,
   bankBonus: 200,
   catchReward: 100,
   falsePenalty: 50,
@@ -237,8 +243,8 @@ export function seedState(now: number): GameState {
     hat: null,
     item: null,
   }));
-  const missions: Mission[] = MISSIONS.map(([template, reward, audience], i) => ({
-    id: `m${i + 1}`,
+  const missions: Mission[] = MISSIONS.map(([template, reward, audience]) => ({
+    id: randomId(),
     template,
     text: template,
     targets: {},

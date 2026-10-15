@@ -7,14 +7,15 @@ import { type Game, useServerNow } from "../net";
 import { QR } from "../qr";
 import { prefetchLine, sfx, speak } from "../sound";
 import { Avatar, Change, Coin, FunnyFace, Led, Marquee, Money, Podium, Spark, burst } from "../ui";
-import { Spotlight, holdTv, loseKind } from "./Moments";
+import { Spotlight, holdTv, loseKind, tvBusy } from "./Moments";
 
 /** Run a sequence of [phase, ms] steps; each entry fires its callback. Returns a cleanup. */
 function runSteps<P>(steps: [P, number][], enter: (p: P) => void, done: () => void) {
   const timers: number[] = [];
-  let t = 0;
+  // a mission alert or a wheel already on screen finishes first
+  let t = Math.max(0, tvBusy.until - Date.now());
   steps.forEach(([ph, ms], i) => {
-    if (i === 0) enter(ph);
+    if (i === 0 && t === 0) enter(ph);
     else timers.push(window.setTimeout(() => enter(ph), t));
     t += ms;
   });
@@ -45,12 +46,27 @@ function useGallery(groom: PlayerPub | undefined) {
   return all.length ? all[i % all.length] : null;
 }
 
+const NUDGES = [
+  "🎁 תקנו משהו לחבר שלכם, יא קמצנים!",
+  "📣 כתבו משהו למסך מהטלפון. גם בעילום שם 🕵️",
+  "🤫 מישהו פה כבר עובד עליכם עם משימה סודית",
+  "💩 קקי על הראש עולה רק 10 שקדים. רק אומר",
+  "🧆 פלאפל לחבר? 15 שקדים. אין לכם תירוצים",
+];
+
 export function Lobby({ view }: { view: ClientView }) {
   const players = view.pub.players;
   const groom = players.find((p) => p.isGroom);
   const photo = useGallery(groom);
   const { startBalance, currency } = view.pub.settings;
   const joined = players.filter((p) => p.claimed).length;
+  const allIn = players.length > 0 && joined === players.length;
+  const [nudge, setNudge] = useState(0);
+  useEffect(() => {
+    if (!allIn) return;
+    const id = window.setInterval(() => setNudge((x) => (x + 1) % NUDGES.length), 5000);
+    return () => window.clearInterval(id);
+  }, [allIn]);
   return (
     <div className="lobby">
       <div className="cert">
@@ -84,15 +100,31 @@ export function Lobby({ view }: { view: ClientView }) {
         <p className="lobby-p">
           סורקים, בוחרים שם ומקבלים {fmt(startBalance)} {currency} ושלוש משימות סודיות. מהמרים על מה שקורה הלילה. מי שמסיים הכי עשיר, מנצח.
         </p>
-        <div className="lobby-qr">
-          <QR url={location.origin} size={260} />
-          <div className="lobby-url">
-            <span>סורקים, או נכנסים לכתובת</span>
-            <b dir="ltr">{location.host}</b>
+        {allIn ? (
+          <>
+            <motion.p key={nudge} className="lobby-nudge" initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }}>
+              {NUDGES[nudge]}
+            </motion.p>
+            <div className="lobby-crowd">
+              {players.map((p, i) => (
+                <motion.div key={p.id} className="crowd-p" initial={{ scale: 0, rotate: -10 }} animate={{ scale: 1, rotate: 0 }} transition={{ delay: i * 0.07, type: "spring", stiffness: 220, damping: 14 }}>
+                  <Avatar p={p} size={128} />
+                  <span>{p.name}</span>
+                </motion.div>
+              ))}
+            </div>
+          </>
+        ) : (
+          <div className="lobby-qr">
+            <QR url={location.origin} size={260} />
+            <div className="lobby-url">
+              <span>סורקים, או נכנסים לכתובת</span>
+              <b dir="ltr">{location.host}</b>
+            </div>
           </div>
-        </div>
+        )}
       </div>
-      <div className="lobby-players" aria-label={`${joined} מחוברים`}>
+      <div className={cls("lobby-players", allIn && "hidden")} aria-label={`${joined} מחוברים`}>
         {players.map((p) => (
           <div key={p.id} className={cls("lp", p.claimed && "in")}>
             <Avatar p={p} size={92} />

@@ -22,7 +22,8 @@ export function unlockAudio() {
       master.gain.value = 0.7;
       master.connect(ctx.destination);
     }
-    if (ctx.state === "suspended") void ctx.resume();
+    // iOS can leave it "interrupted" after a call or another app's audio, not just "suspended"
+    if (ctx.state !== "running") void ctx.resume();
   } catch {
     /* no audio on this device */
   }
@@ -363,16 +364,25 @@ function duck(on: boolean) {
 
 /* ---------- the announcer: lines the game wrote, read out by the server's voice ---------- */
 
-const voices = new Map<string, Promise<string | null>>();
+const voices = new Map<string, Promise<ArrayBuffer | null>>();
 
 function loadLine(ref: string) {
   let p = voices.get(ref);
   if (!p) {
-    p = fetch("/api/tts", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ref }) })
-      .then((r) => (r.ok ? r.blob() : null))
-      .then((b) => (b && b.size > 500 ? URL.createObjectURL(b) : null))
-      .catch(() => null);
+    const ctl = new AbortController();
+    const t = window.setTimeout(() => ctl.abort(), 9000);
+    p = fetch("/api/tts", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ref }), signal: ctl.signal })
+      .then((r) => (r.ok ? r.arrayBuffer() : null))
+      .then((b) => (b && b.byteLength > 500 ? b : null))
+      .catch(() => null)
+      .finally(() => window.clearTimeout(t));
     voices.set(ref, p);
+    // a failed line can be tried again later
+    void p.then((b) => {
+      if (!b) voices.delete(ref);
+    });
+    // keep a handful ready, not the whole night
+    if (voices.size > 24) voices.delete(voices.keys().next().value as string);
   }
   return p;
 }
@@ -387,19 +397,29 @@ let speaking: Promise<void> = Promise.resolve();
 /** Say a line out loud; lines queue up instead of talking over each other. */
 export function speak(ref: string) {
   if (muted || silent) return;
-  const url = loadLine(ref);
+  const data = loadLine(ref);
   speaking = speaking.then(async () => {
-    const u = await url;
-    if (!u || muted) return;
-    const a = new Audio(u);
+    const buf = await data;
+    voices.delete(ref);
+    unlockAudio();
+    if (!buf || muted || !ctx || !master) return;
+    let audio: AudioBuffer;
+    try {
+      audio = await ctx.decodeAudioData(buf.slice(0));
+    } catch {
+      return;
+    }
+    const src = ctx.createBufferSource();
+    src.buffer = audio;
+    src.connect(master);
     duck(true);
     await new Promise<void>((done) => {
-      const t = window.setTimeout(done, 20_000);
-      a.onended = a.onerror = () => {
+      const t = window.setTimeout(done, audio.duration * 1000 + 800);
+      src.onended = () => {
         window.clearTimeout(t);
         done();
       };
-      a.play().catch(() => done());
+      src.start();
     });
     duck(false);
   });

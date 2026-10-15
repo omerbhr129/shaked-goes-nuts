@@ -1,5 +1,5 @@
 import confetti from "canvas-confetti";
-import { AnimatePresence, motion } from "motion/react";
+import { AnimatePresence, motion, useIsPresent } from "motion/react";
 import { type ReactNode, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import type { PlayerPub } from "../shared/types";
@@ -290,6 +290,23 @@ export function Toaster() {
   );
 }
 
+/** While it fades out, a closing backdrop must not swallow the next tap (on the tab bar, say). */
+function Backdrop({ onClose, children }: { onClose: () => void; children: ReactNode }) {
+  const present = useIsPresent();
+  return (
+    <motion.div
+      className="sheet-backdrop"
+      style={{ pointerEvents: present ? "auto" : "none" }}
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      onClick={onClose}
+    >
+      {children}
+    </motion.div>
+  );
+}
+
 export function Sheet({
   open,
   onClose,
@@ -313,7 +330,7 @@ export function Sheet({
   return createPortal(
     <AnimatePresence>
       {open && (
-        <motion.div className="sheet-backdrop" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={onClose}>
+        <Backdrop onClose={onClose}>
           <motion.div
             className={cls("sheet", wide && "wide")}
             role="dialog"
@@ -329,7 +346,7 @@ export function Sheet({
             {title && <h2 className="sheet-title">{title}</h2>}
             <div className="sheet-body">{children}</div>
           </motion.div>
-        </motion.div>
+        </Backdrop>
       )}
     </AnimatePresence>,
     document.body,
@@ -430,27 +447,21 @@ export function ConnBanner({ status }: { status: ConnStatus }) {
 
 /* ---------- celebration ---------- */
 
-let coinShape: confetti.Shape | null = null;
 export function burst(kind: "win" | "big" | "coins" = "win") {
   if (reducedMotion()) return;
   const colors = ["#E9B949", "#FFE39A", "#F3E3C3", "#5CF29B", "#B07A45"];
-  try {
-    coinShape ??= confetti.shapeFromText({ text: "🪙", scalar: 2.2 });
-  } catch {
-    coinShape = null;
-  }
-  if (kind === "coins" && coinShape) {
-    confetti({ particleCount: 40, spread: 100, startVelocity: 38, gravity: 1.1, origin: { y: 0.35 }, shapes: [coinShape], scalar: 2.2, ticks: 220 });
+  if (kind === "coins") {
+    // gold coins as round confetti (an emoji shape renders as white squares in Safari)
+    confetti({ particleCount: 46, spread: 100, startVelocity: 38, gravity: 1.1, origin: { y: 0.35 }, shapes: ["circle"], colors: ["#E9B949", "#FFE39A", "#C9922F"], scalar: 1.7, ticks: 220 });
     return;
   }
   confetti({ particleCount: kind === "big" ? 160 : 90, spread: 85, startVelocity: 45, origin: { y: 0.6 }, colors, scalar: 1.1 });
   if (kind === "big") {
     window.setTimeout(() => confetti({ particleCount: 110, angle: 60, spread: 70, origin: { x: 0, y: 0.7 }, colors }), 250);
     window.setTimeout(() => confetti({ particleCount: 110, angle: 120, spread: 70, origin: { x: 1, y: 0.7 }, colors }), 420);
-    if (coinShape)
-      window.setTimeout(
-        () => confetti({ particleCount: 50, spread: 120, startVelocity: 40, origin: { y: 0.3 }, shapes: [coinShape!], scalar: 2.4, ticks: 260 }),
-        600,
-      );
+    window.setTimeout(
+      () => confetti({ particleCount: 50, spread: 120, startVelocity: 40, origin: { y: 0.3 }, shapes: ["circle"], colors: ["#E9B949", "#FFE39A", "#C9922F"], scalar: 1.8, ticks: 260 }),
+      600,
+    );
   }
 }

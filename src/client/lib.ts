@@ -49,13 +49,27 @@ export async function resizeImage(file: File, max = 900, quality = 0.82): Promis
 
 /** Keep the screen awake (TV, and phones during a live round). */
 export async function keepAwake(): Promise<() => void> {
-  try {
-    const nav = navigator as Navigator & { wakeLock?: { request(t: "screen"): Promise<{ release(): Promise<void> }> } };
-    const lock = await nav.wakeLock?.request("screen");
-    return () => void lock?.release();
-  } catch {
-    return () => {};
-  }
+  const nav = navigator as Navigator & { wakeLock?: { request(t: "screen"): Promise<{ release(): Promise<void> }> } };
+  let lock: { release(): Promise<void> } | undefined;
+  let stopped = false;
+  const get = async () => {
+    try {
+      lock = await nav.wakeLock?.request("screen");
+    } catch {
+      /* not allowed right now */
+    }
+  };
+  // the browser drops the lock whenever the tab is hidden: take it again when it's back
+  const onVisible = () => {
+    if (!stopped && document.visibilityState === "visible") void get();
+  };
+  await get();
+  document.addEventListener("visibilitychange", onVisible);
+  return () => {
+    stopped = true;
+    document.removeEventListener("visibilitychange", onVisible);
+    void lock?.release();
+  };
 }
 
 export function lsGet(key: string) {

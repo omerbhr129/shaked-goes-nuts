@@ -147,11 +147,11 @@ function Inbox({ view, run }: { view: ClientView; run: Run }) {
                 </div>
                 <blockquote className="inbox-quote">״{a.text}״</blockquote>
                 <p className="muted">
-                  זה מתאים לאחת המשימות של {sus?.name}? אם כן, המשימה נשרפת ו{by?.name} מקבל {catchReward}.
+                  זה מתאים לאחת המשימות של {sus?.name}? אם כן, המשימה נשרפת ו{by?.name} גונב לו את שווי המשימה.
                 </p>
                 <div className="mission-picks">
                   {options.map((m) => (
-                    <button key={m.id} type="button" className="mission-pick" onClick={() => run("judgeAccusation", { accusationId: a.id, missionId: m.id }, `צדק! +${catchReward} ל${by?.name}`)}>
+                    <button key={m.id} type="button" className="mission-pick" onClick={() => run("judgeAccusation", { accusationId: a.id, missionId: m.id }, `צדק! ${by?.name} גונב ${Math.max(m.reward, catchReward)}`)}>
                       <span aria-hidden="true">{m.status === "done" ? "✅" : "✉️"}</span>
                       <span>{m.text}</span>
                     </button>

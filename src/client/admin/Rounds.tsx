@@ -22,19 +22,7 @@ export function RoundsTab({ game, view, run }: { game: Game; view: ClientView; r
   return (
     <section className="rounds-tab">
       <div className="rounds-col stack">
-      {!busyElsewhere && (
-        <div className="draw-bar felt">
-          <p>אתם מחליטים מתי, המאגר מחליט מה. הטלוויזיה מגרילה מול כולם.</p>
-          <div className="row-actions">
-            <button type="button" className="btn btn-gold" disabled={!left("challenge")} onClick={() => run("drawRound", { kind: "challenge" }, "הוגרל אתגר")}>
-              🎰 אתגר אקראי <small>({left("challenge")})</small>
-            </button>
-            <button type="button" className="btn btn-gold" disabled={!left("quiz")} onClick={() => run("drawRound", { kind: "quiz" }, "הוגרלה שאלה")}>
-              ❓ שאלה אקראית <small>({left("quiz")})</small>
-            </button>
-          </div>
-        </div>
-      )}
+      {!busyElsewhere && <DrawBar game={game} view={view} run={run} left={left} />}
       {!busyElsewhere && <QuickDuel view={view} run={run} />}
       {live && (live.kind === "quiz" ? <LiveQuiz game={game} view={view} run={run} /> : <LiveRound game={game} view={view} run={run} />)}
 
@@ -152,6 +140,35 @@ export function RoundsTab({ game, view, run }: { game: Game; view: ClientView; r
         )}
       </Sheet>
     </section>
+  );
+}
+
+/** גלגל הבלגן: challenges, questions and surprises on one wheel. Waits while the TV still shows the last result. */
+function DrawBar({ game, view, run, left }: { game: Game; view: ClientView; run: Run; left: (k: RoundKind) => number }) {
+  const r = view.pub.round;
+  const draw = view.pub.draw;
+  const now = useServerNow(game, true, 1000);
+  const busyUntil = Math.max(r?.status === "resolved" && r.resolvedAt ? r.resolvedAt + 24_000 : 0, draw ? draw.at + 17_000 : 0);
+  const wait = Math.ceil((busyUntil - now) / 1000);
+  const spin = async (kind: string) => {
+    const res = (await run("drawRound", { kind })) as { title?: string } | undefined;
+    if (res?.title) toast(`🎡 יצא: ${res.title}`, "ok", 4000);
+  };
+  return (
+    <div className="draw-bar felt">
+      <p>אתם מחליטים מתי, הגלגל מחליט מה. אתגרים, שאלות והפתעות, מול כולם בטלוויזיה.</p>
+      <button type="button" className="btn btn-gold btn-xl" disabled={wait > 0} onClick={() => spin("any")}>
+        {wait > 0 ? `⏳ הטלוויזיה עוד באמצע (${wait})` : "🎡 לסובב את גלגל הבלגן"}
+      </button>
+      <div className="row-actions">
+        <button type="button" className="btn btn-ghost btn-s" disabled={wait > 0 || !left("challenge")} onClick={() => spin("challenge")}>
+          רק אתגר <small>({left("challenge")})</small>
+        </button>
+        <button type="button" className="btn btn-ghost btn-s" disabled={wait > 0 || !left("quiz")} onClick={() => spin("quiz")}>
+          רק שאלה <small>({left("quiz")})</small>
+        </button>
+      </div>
+    </div>
   );
 }
 
@@ -423,9 +440,9 @@ function LiveRound({ game, view, run }: { game: Game; view: ClientView; run: Run
             🔒 לסגור הימורים עכשיו
           </button>
         )}
-        {r.status !== "resolved" && (
-          <button type="button" className="btn btn-ghost" onClick={() => run("extendRound", { roundId: r.id, seconds: 30 }, open ? "נוספו 30 שניות" : "ההימורים נפתחו שוב ל־30 שניות")}>
-            {open ? "+30 שניות" : "לפתוח שוב ל־30 שניות"}
+        {open && (
+          <button type="button" className="btn btn-ghost" onClick={() => run("extendRound", { roundId: r.id, seconds: 30 }, "נוספו 30 שניות")}>
+            +30 שניות
           </button>
         )}
         {r.status === "resolved" && (
@@ -559,9 +576,9 @@ function LiveQuiz({ game, view, run }: { game: Game; view: ClientView; run: Run 
             🔒 לסגור עכשיו
           </button>
         )}
-        {r.status !== "resolved" && (
-          <button type="button" className="btn btn-ghost" onClick={() => run("extendRound", { roundId: r.id, seconds: 15 }, open ? "נוספו 15 שניות" : "השאלה נפתחה שוב ל־15 שניות")}>
-            {open ? "+15 שניות" : "לפתוח שוב ל־15 שניות"}
+        {open && (
+          <button type="button" className="btn btn-ghost" onClick={() => run("extendRound", { roundId: r.id, seconds: 15 }, "נוספו 15 שניות")}>
+            +15 שניות
           </button>
         )}
         {r.status === "resolved" && (

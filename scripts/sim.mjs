@@ -211,7 +211,7 @@ ok(p.round.lines.fast?.includes("שמאי") && p.round.lines.shot?.includes("ס�
 ok(p.round.bets.length === 7 && p.round.results.find((x) => x.playerId === "shmay").delta === 150, "after the reveal everyone sees who answered what");
 
 console.log("quiz: everyone right → the slowest drinks, and it closes itself");
-const q5 = vq.find((x) => x.id === "q5");
+const q5 = vq.find((x) => x.kind === "quiz" && x.correctId && x.id !== "q2");
 await admin("openRound", { roundId: q5.id, seconds: 0 });
 for (const id of ids) await act("bet", { roundId: q5.id, optionId: "o1", amount: 0 }, { token: tokens[id] });
 p = await pub();
@@ -260,10 +260,28 @@ await admin("resolveRound", { roundId: r.r.id, optionId: "drori" });
 p = await pub();
 ok(p.round.lines.duel?.includes("דרורי") && p.round.lines.duel.includes("יהלי") && p.round.lines.duelLoser === "יהלי", `the winner gets a line about the game: ${p.round.lines.duel}`);
 
+console.log("review fixes");
+const doneM = (await view({ key: KEY })).admin.missions.find((m) => m.status === "done" && Object.keys(m.targets).length);
+if (doneM) {
+  const sumBefore = (await pub()).players.reduce((a, x) => a + x.balance, 0);
+  r = await admin("saveMission", { mission: { id: doneM.id, template: doneM.template, reward: doneM.reward, audience: doneM.audience, assignedTo: doneM.assignedTo } });
+  ok(r.ok && (await pub()).players.reduce((a, x) => a + x.balance, 0) === sumBefore, "editing a paid mission doesn't create almonds");
+  ok(!(await admin("saveMission", { mission: { id: doneM.id, template: doneM.template, reward: doneM.reward + 50, audience: doneM.audience, assignedTo: doneM.assignedTo } })).ok, "a paid mission's reward can't change");
+}
+const spamM = (await view({ token: tokens.yali })).me.missions.find((m) => m.status === "open");
+await act("claimMission", { missionId: spamM.id }, { token: tokens.yali });
+await act("unclaimMission", { missionId: spamM.id }, { token: tokens.yali });
+ok(!(await act("claimMission", { missionId: spamM.id }, { token: tokens.yali })).ok, "no claim/cancel spam on the TV");
+ok((await pub()).feed.filter((e) => e.kind === "mission" && e.ref === spamM.id).every((e) => e.data.until <= Date.now() + 1000), "a cancelled claim ends its countdown");
+await act("gift", { to: "drori", item: "beer" }, { token: tokens.birman });
+ok(!(await act("gift", { to: "drori", item: "beer" }, { token: tokens.birman })).ok, "gifts have a short cooldown");
+const joinNew = await act("join", { name: "בדיקה" });
+ok(!joinNew.ok, "only the 8 names can join");
+
 console.log("random draw from the pool");
 const drawn = await admin("drawRound", { kind: "challenge" });
 p = await pub();
-ok(drawn.ok && p.round.id === drawn.r.id && p.draw?.roundId === drawn.r.id && p.draw.titles.at(-1).includes(p.round.title), `drawn: ${drawn.r?.title}`);
+ok(drawn.ok && p.round.id === drawn.r.id && p.draw?.roundId === drawn.r.id && p.draw.titles[p.draw.index].includes(p.round.title), `the wheel lands on it: ${drawn.r?.title}`);
 const bettor = ids.find((id) => !p.round.noBet.includes(id));
 const early = await act("bet", { roundId: drawn.r.id, optionId: p.round.options[0].id, amount: 50 }, { token: tokens[bettor] });
 ok(!early.ok && /מגרילים/.test(early.err), "no bets while the reel spins");
@@ -271,12 +289,23 @@ const again = await admin("drawRound", { kind: "challenge", redraw: true });
 ok(again.ok && again.r.id !== drawn.r.id, "draw again while nobody has bet");
 p = await pub();
 const bettor2 = ids.find((id) => !p.round.noBet.includes(id));
-await sleep(3700);
+await sleep(8300);
 ok((await act("bet", { roundId: again.r.id, optionId: p.round.options[0].id, amount: 50 }, { token: tokens[bettor2] })).ok, "after the reel, bets are open");
 ok(!(await admin("drawRound", { kind: "challenge", redraw: true })).ok, "no redraw once someone has bet");
 await admin("cancelRound", { roundId: again.r.id });
 ok((await admin("drawRound", { kind: "quiz" })).ok && (await pub()).round.kind === "quiz", "a random quiz too");
 await admin("cancelRound", { roundId: (await pub()).round.id });
+const before50 = Object.fromEntries((await pub()).players.map((x) => [x.id, x.balance]));
+r = await admin("drawRound", { kind: "any", pick: "rain" });
+p = await pub();
+ok(r.ok && r.r.surprise === "rain" && p.draw.surprise === "rain" && p.draw.kinds[p.draw.index] === "s" && !p.draw.roundId, `the mixed wheel can land on a surprise: ${r.r?.title}`);
+ok(p.players.every((x) => !x.claimed || x.balance === before50[x.id] + 50) && p.feed.some((e) => e.kind === "spin" && e.data?.surprise === "rain"), "rain: 50 for everyone who plays");
+r = await admin("drawRound", { kind: "any", pick: "shots" });
+ok(r.ok && (await pub()).feed.findLast((e) => e.kind === "spin").players.length === 8, "shots for everybody");
+r = await admin("drawRound", { kind: "any" });
+p = await pub();
+ok(r.ok && p.draw.titles.length >= 8 && p.draw.kinds.includes("s"), `a mixed wheel of ${p.draw.titles.length}: ${p.draw.titles[p.draw.index]}`);
+if (p.round && p.round.status === "open") await admin("cancelRound", { roundId: p.round.id });
 
 console.log("announcer");
 const said = (await pub()).feed.at(-1);
@@ -335,6 +364,17 @@ ok(msgs.includes("pong"), "ping/pong heartbeat works");
 ok(msgs.some((m) => m.t === "s" && m.d.pub.tv.mode === "board"), "push update arrives after a host action");
 ws.close();
 
+console.log("no reopening after the bets came out, no double moments");
+const rx = v0.admin.rounds.filter((x) => x.kind === "challenge")[3];
+await admin("openRound", { roundId: rx.id, seconds: 0 });
+await admin("closeRound", { roundId: rx.id });
+ok(!(await admin("extendRound", { roundId: rx.id, seconds: 30 })).ok, "a closed round can't be reopened");
+await admin("resolveRound", { roundId: rx.id, optionId: rx.options[0].id });
+const feedLen = (await pub()).feed.length;
+await admin("resolveRound", { roundId: rx.id, optionId: rx.options[0].id });
+ok((await pub()).feed.length === feedLen, "deciding the same result twice changes nothing");
+await admin("cancelRound", { roundId: rx.id });
+
 console.log("countdown closes betting by itself");
 const r3 = v0.admin.rounds.filter((x) => x.kind === "challenge")[2];
 await admin("openRound", { roundId: r3.id, seconds: 2 });
@@ -346,6 +386,7 @@ console.log("reset");
 r = await admin("resetGame", { unclaim: true, undeal: true });
 p = await pub();
 ok(r.ok && p.players.every((x) => x.balance === 1000 && !x.claimed) && p.night.length === 0 && p.feed.length === 0, "reset: clean slate");
+ok(!(await view({ key: KEY })).admin.rounds.some((x) => x.id.startsWith("duel-")), "quick duels don't survive a reset");
 
 console.log(failures ? `\n${failures} FAILED` : "\nALL PASSED");
 process.exit(failures ? 1 : 0);
