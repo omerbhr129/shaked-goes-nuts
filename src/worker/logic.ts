@@ -438,17 +438,16 @@ function payMission(s: GameState, m: Mission, now: number) {
   pushFeed(s, now, "reveal", `🕵️ ${line}`, [holder, ...targets], m.id, { line, amount: m.reward });
 }
 
-/** Missions whose catch window is over, and nobody is still accusing their holder. */
+/** An accusation holds a payout until the host judges it, but not forever: the host is playing too.
+ *  Judged right later, the payout is taken back anyway. */
+const ACCUSATION_HOLD = 3 * 60_000;
+const holding = (s: GameState, m: Mission, now: number) =>
+  s.accusations.filter((a) => a.status === "pending" && a.suspect === m.assignedTo && now < a.at + ACCUSATION_HOLD - 30);
+
+/** Missions whose catch window is over, and no fresh accusation is still waiting for the host. */
 function dueMissions(s: GameState, now: number) {
   const win = s.settings.catchWindow * 1000;
-  return s.missions.filter(
-    (m) =>
-      m.status === "pending" &&
-      m.assignedTo &&
-      m.claimedAt &&
-      now >= m.claimedAt + win - 30 &&
-      !s.accusations.some((a) => a.status === "pending" && a.suspect === m.assignedTo),
-  );
+  return s.missions.filter((m) => m.status === "pending" && m.assignedTo && m.claimedAt && now >= m.claimedAt + win - 30 && !holding(s, m, now).length);
 }
 
 /** Time-based things: betting closing, missions paying out. Returns true if anything changed. */
@@ -486,8 +485,11 @@ export function nextDue(s: GameState): number | null {
   if (r && r.status === "open" && r.closesAt) times.push(r.closesAt);
   const win = s.settings.catchWindow * 1000;
   for (const m of s.missions)
-    if (m.status === "pending" && m.claimedAt && !s.accusations.some((a) => a.status === "pending" && a.suspect === m.assignedTo))
-      times.push(m.claimedAt + win);
+    if (m.status === "pending" && m.claimedAt) {
+      // after its window, or once the accusations holding it run out
+      const held = s.accusations.filter((a) => a.status === "pending" && a.suspect === m.assignedTo).map((a) => a.at + ACCUSATION_HOLD);
+      times.push(Math.max(m.claimedAt + win, ...held));
+    }
   return times.length ? Math.min(...times) : null;
 }
 
@@ -855,7 +857,7 @@ const PLAYER: Record<string, Handler> = {
     Object.assign(m, { status: "pending", claimedAt: c.now, doneAt: null });
     const win = s.settings.catchWindow;
     if (win <= 0) return void payMission(s, m, c.now);
-    const span = win === 90 ? "דקה וחצי" : win === 60 ? "דקה" : win === 120 ? "שתי דקות" : `${win} שניות`;
+    const span = win === 90 ? "דקה וחצי" : win === 60 ? "דקה" : win === 30 ? "חצי דקה" : win === 120 ? "שתי דקות" : `${win} שניות`;
     const line = sample(LINES.alert).replaceAll("{t}", span);
     pushFeed(s, c.now, "mission", `🚨 ${line}`, [], m.id, { line, until: c.now + win * 1000 });
   },

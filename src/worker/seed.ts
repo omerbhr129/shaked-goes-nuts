@@ -256,7 +256,7 @@ export const DEFAULT_SETTINGS: Settings = {
   prize3: "זכות וטו: פטור מפקודה אחת של המלך",
   prizeLast: "השקד המר: משרת אישי של המלך, מכין לכולם שקשוקה, ומעלה סטורי עם התמונה העצובה שלו מהמשחק",
   nightCap: 300,
-  catchWindow: 90,
+  catchWindow: 30,
 };
 
 function round(kind: RoundKind, seed: RoundSeed, i: number): RoundRec {
