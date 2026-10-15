@@ -275,7 +275,13 @@ function ShoutsAdmin({ view, run }: { view: ClientView; run: Run }) {
         <div key={x.id} className={cls("mrow", x.hidden && "burned")}>
           <span className="mrow-text">
             <b>{name(x.author)}</b>
-            {x.anon && <small className="muted"> (בעילום שם)</small>}: {x.photo && <img className="shout-thumb" src={x.photo} alt="" />} {x.text}
+            {x.anon && <small className="muted"> (בעילום שם)</small>}: {x.photo && <img className="shout-thumb" src={x.photo} alt="" />}
+                {x.video && (
+                  <a href={x.video} target="_blank" rel="noreferrer">
+                    🎬 סרטון
+                  </a>
+                )}{" "}
+                {x.text}
           </span>
           {!x.hidden && (
             <button type="button" className="mini" onClick={() => run("hideShout", { shoutId: x.id }, "הוסתר מהמסך")}>

@@ -52,6 +52,8 @@ export interface Shout {
   anon: boolean;
   text: string | null;
   photo: string | null;
+  /** a short video from someone's phone */
+  video: string | null;
   hidden: boolean;
 }
 
@@ -62,6 +64,7 @@ export interface ShoutPub {
   by: ID | null;
   text: string | null;
   photo: string | null;
+  video: string | null;
 }
 
 export interface RoundOption {

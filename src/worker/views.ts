@@ -167,7 +167,7 @@ export function buildPublic(s: GameState, now: number, online: Set<ID>): PublicV
     shouts: s.shouts
       .filter((x) => !x.hidden)
       .slice(-15)
-      .map((x) => ({ id: x.id, at: x.at, by: x.anon ? null : x.author, text: x.text, photo: x.photo })),
+      .map((x) => ({ id: x.id, at: x.at, by: x.anon ? null : x.author, text: x.text, photo: x.photo, video: x.video })),
     doubleNext: s.doubleNext,
     cards: s.cards,
   };

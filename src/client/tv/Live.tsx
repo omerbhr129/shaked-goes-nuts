@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import type { ClientView, FeedEvent, PlayerPub, ShoutPub } from "../../shared/types";
 import { cls, mmss } from "../lib";
 import { type Game, useServerNow } from "../net";
-import { type Theme, sfx, speak, startMusic, stopMusic } from "../sound";
+import { type Theme, duckMusic, isMuted, sfx, speak, startMusic, stopMusic } from "../sound";
 import { SOUNDS, type Sound } from "../../shared/catalog";
 import { Avatar } from "../ui";
 import { spinLength } from "./Moments";
@@ -71,7 +71,7 @@ export function ShoutsLayer({ shouts, players, feed, bubbles: showBubbles }: { s
     for (const e of gifts) {
       if (seenGifts.current.has(e.id)) continue;
       seenGifts.current.add(e.id);
-      const b: ShoutPub = { id: e.id, at: e.at, by: e.players[0] ?? null, text: e.text.replace(/^🎁\s*/, "🎁 "), photo: null };
+      const b: ShoutPub = { id: e.id, at: e.at, by: e.players[0] ?? null, text: e.text.replace(/^🎁\s*/, "🎁 "), photo: null, video: null };
       if (bubbleRef.current) setBubbles((q) => [...q.slice(-2), b]);
       sfx.coin();
       speak(`feed:${e.id}`);
@@ -86,7 +86,7 @@ export function ShoutsLayer({ shouts, players, feed, bubbles: showBubbles }: { s
     const fresh = shouts.filter((s) => !seen.current!.has(s.id));
     for (const s of shouts) seen.current.add(s.id);
     for (const s of fresh) {
-      if (s.photo) {
+      if (s.photo || s.video) {
         setPhotos((q) => [...q, s]);
         sfx.whoosh();
       } else {
@@ -97,9 +97,11 @@ export function ShoutsLayer({ shouts, players, feed, bubbles: showBubbles }: { s
     }
   }, [shouts]);
   const photo = photos[0];
+  const done = (id: string) => setPhotos((q) => (q[0]?.id === id ? q.slice(1) : q));
   useEffect(() => {
     if (!photo) return;
-    const id = window.setTimeout(() => setPhotos((q) => q.slice(1)), 7000);
+    // a photo stays 7 seconds; a video until it ends (at most a minute)
+    const id = window.setTimeout(() => done(photo.id), photo.video ? 60_000 : 7000);
     return () => window.clearTimeout(id);
   }, [photo?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -125,9 +127,9 @@ export function ShoutsLayer({ shouts, players, feed, bubbles: showBubbles }: { s
       <AnimatePresence>
         {photo && (
           <motion.figure key={photo.id} className="shout-photo" initial={{ scale: 0.3, rotate: -14, opacity: 0 }} animate={{ scale: 1, rotate: -3, opacity: 1 }} exit={{ scale: 0.6, rotate: 10, opacity: 0 }} transition={{ type: "spring", stiffness: 200, damping: 16 }}>
-            <img src={photo.photo!} alt="" />
+            {photo.video ? <ShoutVideo src={photo.video} onDone={() => done(photo.id)} /> : <img src={photo.photo!} alt="" />}
             <figcaption>
-              📸 {who(photo)?.name ?? "אנונימי"}
+              {photo.video ? "🎬" : "📸"} {who(photo)?.name ?? "אנונימי"}
               {photo.text && <span> · {photo.text}</span>}
             </figcaption>
           </motion.figure>
@@ -135,6 +137,25 @@ export function ShoutsLayer({ shouts, players, feed, bubbles: showBubbles }: { s
       </AnimatePresence>
     </>
   );
+}
+
+/** A video from someone's phone: with sound if the TV may play sound, the music turned down meanwhile. */
+function ShoutVideo({ src, onDone }: { src: string; onDone: () => void }) {
+  const ref = useRef<HTMLVideoElement>(null);
+  useEffect(() => {
+    const v = ref.current;
+    if (!v) return;
+    const quiet = isMuted();
+    v.muted = quiet;
+    if (!quiet) duckMusic(true);
+    // the TV was clicked once for sound; if the browser still says no, play it silent
+    v.play().catch(() => {
+      v.muted = true;
+      void v.play().catch(() => window.setTimeout(onDone, 1500));
+    });
+    return () => duckMusic(false);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  return <video ref={ref} src={src} playsInline preload="auto" onEnded={onDone} onError={() => window.setTimeout(onDone, 1500)} />;
 }
 
 /** While a finished mission can still be caught, a clock ticks in the corner. */
@@ -250,7 +271,7 @@ const fromShout = (s: ShoutPub, people: Record<string, PlayerPub>): Line => ({
   who: s.by ? people[s.by] ?? null : null,
   name: s.by ? people[s.by]?.name : "🕵️ אנונימי",
   kind: "msg",
-  text: s.photo ? `📸 ${s.text ?? "שלח תמונה למסך"}` : (s.text ?? ""),
+  text: s.video ? `🎬 ${s.text ?? "שלח סרטון למסך"}` : s.photo ? `📸 ${s.text ?? "שלח תמונה למסך"}` : (s.text ?? ""),
 });
 
 const fromFeed = (e: FeedEvent, people: Record<string, PlayerPub>): Line => ({

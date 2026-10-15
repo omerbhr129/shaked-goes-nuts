@@ -2253,11 +2253,13 @@ html.is-tv body {
   box-shadow: 0 40px 90px rgba(0, 0, 0, 0.6);
 }
 
-.shout-photo img {
+.shout-photo img,
+.shout-photo video {
   display: block;
   max-width: 1000px;
   max-height: 700px;
   object-fit: contain;
+  background: #000;
 }
 
 .shout-photo figcaption {

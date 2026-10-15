@@ -20,7 +20,9 @@ function ToTheScreen({ game, view }: { game: Game; view: ClientView }) {
   const [text, setText] = useState("");
   const [anon, setAnon] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [progress, setProgress] = useState<number | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const videoRef = useRef<HTMLInputElement>(null);
   const people = Object.fromEntries(view.pub.players.map((p) => [p.id, p])) as Record<string, PlayerPub>;
 
   const react = async (emoji: string) => {
@@ -64,6 +66,31 @@ function ToTheScreen({ game, view }: { game: Game; view: ClientView }) {
     }
   };
 
+  const onVideo = async (file?: File) => {
+    if (videoRef.current) videoRef.current.value = "";
+    if (!file) return;
+    if (file.size > 40_000_000) {
+      toast("הסרטון גדול מדי. עד 40 מגה, בערך חצי דקה. אפשר לקצר אותו בגלריה ולנסות שוב", "err", 6000);
+      return;
+    }
+    // some phones leave the type empty: guess it from the name
+    const type = file.type || (/\.mov$/i.test(file.name) ? "video/quicktime" : "video/mp4");
+    setBusy(true);
+    setProgress(0);
+    try {
+      const url = await game.uploadWithProgress(file, type, setProgress);
+      await game.act("shoutVideo", { video: url, anon, text });
+      setText("");
+      sfx.pop();
+      toast("🎬 הסרטון עלה למסך", "ok");
+    } catch (e) {
+      toast((e as Error).message, "err", 6000);
+    } finally {
+      setBusy(false);
+      setProgress(null);
+    }
+  };
+
   const recent = [...view.pub.shouts].reverse().slice(0, 6);
   return (
     <div className="fun felt">
@@ -89,16 +116,27 @@ function ToTheScreen({ game, view }: { game: Game; view: ClientView }) {
           📣 למסך
         </button>
         <label className={cls("btn btn-ghost", busy && "busy")}>
-          📸 תמונה מהגלריה
-          <input ref={fileRef} type="file" accept="image/*" hidden onChange={(e) => onPhoto(e.target.files?.[0])} />
+          📸 תמונה
+          <input ref={fileRef} type="file" accept="image/*" hidden disabled={busy} onChange={(e) => onPhoto(e.target.files?.[0])} />
+        </label>
+        <label className={cls("btn btn-ghost", busy && "busy")}>
+          🎬 סרטון
+          <input ref={videoRef} type="file" accept="video/*" hidden disabled={busy} onChange={(e) => onVideo(e.target.files?.[0])} />
         </label>
       </div>
+      {progress !== null && (
+        <div className="upload-progress" role="progressbar" aria-valuenow={Math.round(progress * 100)} aria-valuemin={0} aria-valuemax={100}>
+          <span>🎬 מעלה את הסרטון… {Math.round(progress * 100)}%</span>
+          <i style={{ width: `${Math.round(progress * 100)}%` }} />
+        </div>
+      )}
+      <p className="muted small-note">סרטון עד חצי דקה. הוא מתנגן בטלוויזיה עם הסאונד.</p>
       {recent.length > 0 && (
         <ul className="shout-list" aria-label="מה עלה למסך לאחרונה">
           {recent.map((x) => (
             <li key={x.id}>
-              <b>{x.by ? people[x.by]?.name ?? "מישהו" : "🕵️ אנונימי"}:</b> {x.photo ? "📸 " : ""}
-              {x.text ?? (x.photo ? "תמונה" : "")}
+              <b>{x.by ? people[x.by]?.name ?? "מישהו" : "🕵️ אנונימי"}:</b> {x.video ? "🎬 " : x.photo ? "📸 " : ""}
+              {x.text ?? (x.video ? "סרטון" : x.photo ? "תמונה" : "")}
             </li>
           ))}
         </ul>

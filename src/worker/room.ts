@@ -15,6 +15,12 @@ interface Att {
 
 const PARTS = ["players", "rounds", "bets", "missions", "ledger"] as const;
 const IMG_CHUNK = 96 * 1024;
+const IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp"];
+const VIDEO_TYPES = ["video/mp4", "video/quicktime", "video/webm", "video/3gpp", "video/x-m4v"];
+const MAX_IMAGE = 2_500_000;
+const MAX_VIDEO = 40_000_000;
+/** the most one piece of a video can be */
+const RANGE_MAX = 4 * 1024 * 1024;
 
 const VOICE =
   "Speak natural Israeli Hebrew like a loud, cocky Israeli street guy (an ars) hosting a wild bachelor party: rough, slangy, high energy, sarcastic, with great comedic timing. Read exactly what is written, swear words included. Never translate or soften anything.";
@@ -119,7 +125,7 @@ export class GameRoom extends DurableObject<Env> {
       if (path === "/api/act" && req.method === "POST") return await this.act(req);
       if (path === "/api/upload" && req.method === "POST") return await this.upload(req);
       if (path === "/api/tts" && req.method === "POST") return await this.tts(req);
-      if (path.startsWith("/media/")) return await this.media(path.slice("/media/".length));
+      if (path.startsWith("/media/")) return await this.media(path.slice("/media/".length), req);
     } catch (e) {
       console.error("request failed", path, e);
       return json({ ok: false, err: "שגיאה בשרת. נסו שוב." }, 500);
@@ -231,34 +237,80 @@ export class GameRoom extends DurableObject<Env> {
     if (!this.isAdmin(req.headers.get("x-key")) && !this.playerId(req.headers.get("x-token")))
       return json({ ok: false, err: "אין הרשאה" }, 403);
     const type = (req.headers.get("content-type") ?? "").split(";")[0].trim();
-    if (!["image/jpeg", "image/png", "image/webp"].includes(type)) return json({ ok: false, err: "אפשר להעלות רק תמונות" }, 415);
-    if (buf.byteLength < 100 || buf.byteLength > 2_500_000) return json({ ok: false, err: "התמונה גדולה מדי" }, 413);
+    const video = VIDEO_TYPES.includes(type);
+    if (!IMAGE_TYPES.includes(type) && !video) return json({ ok: false, err: "אפשר להעלות רק תמונות וסרטונים" }, 415);
+    if (buf.byteLength < 100) return json({ ok: false, err: "הקובץ ריק. נסו שוב" }, 400);
+    if (buf.byteLength > (video ? MAX_VIDEO : MAX_IMAGE))
+      return json({ ok: false, err: video ? "הסרטון גדול מדי. עד 40 מגה, בערך חצי דקה" : "התמונה גדולה מדי" }, 413);
     const id = newId(14);
     await this.writeBlob(`img:${id}`, type, buf);
     return json({ ok: true, url: `/media/${id}` });
   }
 
-  private async media(id: string) {
+  private async media(id: string, req: Request) {
     if (!/^[a-z0-9]{6,40}$/.test(id)) return new Response("bad id", { status: 400 });
-    const blob = await this.readBlob(`img:${id}`);
+    const key = `img:${id}`;
+    const meta = await this.ctx.storage.get<{ type: string; n: number; size?: number }>(key);
+    if (!meta) return new Response("not found", { status: 404 });
+    const cache = "public, max-age=31536000, immutable";
+    // Safari only plays video that can be fetched in pieces: answer byte ranges
+    const range = meta.size ? req.headers.get("range")?.match(/^bytes=(\d*)-(\d*)$/) : null;
+    if (range && meta.size) {
+      const size = meta.size;
+      let start = range[1] ? Number(range[1]) : NaN;
+      let end = range[2] ? Number(range[2]) : size - 1;
+      if (Number.isNaN(start)) {
+        start = Math.max(0, size - end);
+        end = size - 1;
+      }
+      end = Math.min(end, size - 1, start + RANGE_MAX - 1);
+      if (start >= size || start > end) return new Response(null, { status: 416, headers: { "content-range": `bytes */${size}` } });
+      const first = Math.floor(start / IMG_CHUNK);
+      const last = Math.floor(end / IMG_CHUNK);
+      const keys = Array.from({ length: last - first + 1 }, (_, i) => `${key}:${first + i}`);
+      const parts = await this.ctx.storage.get<ArrayBuffer>(keys);
+      const body = new Uint8Array(end - start + 1);
+      let at = 0;
+      keys.forEach((k, i) => {
+        const chunk = new Uint8Array(parts.get(k) ?? new ArrayBuffer(0));
+        const from = i === 0 ? start - first * IMG_CHUNK : 0;
+        const to = Math.min(chunk.byteLength, end - (first + i) * IMG_CHUNK + 1);
+        if (to > from) {
+          body.set(chunk.subarray(from, to), at);
+          at += to - from;
+        }
+      });
+      return new Response(body, {
+        status: 206,
+        headers: { "content-type": meta.type, "content-range": `bytes ${start}-${end}/${size}`, "content-length": String(body.byteLength), "accept-ranges": "bytes", "cache-control": cache },
+      });
+    }
+    const blob = await this.readBlob(key);
     if (!blob) return new Response("not found", { status: 404 });
     return new Response(blob.body, {
-      headers: { "content-type": blob.type, "cache-control": "public, max-age=31536000, immutable" },
+      headers: { "content-type": blob.type, "cache-control": cache, ...(meta.size ? { "accept-ranges": "bytes" } : {}) },
     });
   }
 
   private async writeBlob(key: string, type: string, buf: ArrayBuffer) {
     const n = Math.ceil(buf.byteLength / IMG_CHUNK);
-    const entries: Record<string, unknown> = { [key]: { type, n } };
-    for (let i = 0; i < n; i++) entries[`${key}:${i}`] = buf.slice(i * IMG_CHUNK, (i + 1) * IMG_CHUNK);
-    await this.ctx.storage.put(entries);
+    // a video is hundreds of chunks: storage takes at most 128 keys per write
+    for (let i = 0; i < n; i += 100) {
+      const entries: Record<string, ArrayBuffer> = {};
+      for (let j = i; j < Math.min(n, i + 100); j++) entries[`${key}:${j}`] = buf.slice(j * IMG_CHUNK, (j + 1) * IMG_CHUNK);
+      await this.ctx.storage.put(entries);
+    }
+    // the index goes last, so a half-written file is never served
+    await this.ctx.storage.put(key, { type, n, size: buf.byteLength });
   }
 
   private async readBlob(key: string): Promise<{ type: string; body: Uint8Array } | null> {
     const meta = await this.ctx.storage.get<{ type: string; n: number }>(key);
     if (!meta) return null;
     const keys = Array.from({ length: meta.n }, (_, i) => `${key}:${i}`);
-    const parts = await this.ctx.storage.get<ArrayBuffer>(keys);
+    // storage reads at most 128 keys at a time
+    const parts = new Map<string, ArrayBuffer>();
+    for (let i = 0; i < keys.length; i += 100) for (const [k, v] of await this.ctx.storage.get<ArrayBuffer>(keys.slice(i, i + 100))) parts.set(k, v);
     const chunks = keys.map((k) => new Uint8Array(parts.get(k) ?? new ArrayBuffer(0)));
     const body = new Uint8Array(chunks.reduce((a, c) => a + c.byteLength, 0));
     let o = 0;

@@ -391,6 +391,14 @@ function duck(on: boolean) {
   if (bus && ctx && theme) bus.gain.setTargetAtTime(on ? 0.1 : LEVEL[theme], ctx.currentTime, 0.15);
 }
 
+/** Turn the music down while something else plays (a video on the TV). */
+export function duckMusic(on: boolean) {
+  duck(on);
+}
+
+/** Whether this page's sounds are off. */
+export const isMuted = () => muted || silent;
+
 /* ---------- the announcer: lines the game wrote, read out by the server's voice ---------- */
 
 const voices = new Map<string, Promise<ArrayBuffer | null>>();

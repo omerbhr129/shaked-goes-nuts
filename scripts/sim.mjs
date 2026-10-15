@@ -310,9 +310,13 @@ ok(r.ok && p.draw.titles.length >= 8 && p.draw.kinds.includes("s"), `a mixed whe
 if (p.round && p.round.status === "open") await admin("cancelRound", { roundId: p.round.id });
 
 console.log("announcer");
-const said = (await pub()).feed.at(-1);
-const tts = await fetch(`${BASE}/api/tts`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ref: `feed:${said.id}` }) });
-ok(tts.ok && tts.headers.get("content-type") === "audio/mpeg" && (await tts.arrayBuffer()).byteLength > 2000, "a line from the game comes back as speech");
+// SKIP_TTS=1: don't make speech (it would call OpenAI with the owner's key)
+if (process.env.SKIP_TTS) console.log("  · speech skipped (SKIP_TTS)");
+else {
+  const said = (await pub()).feed.at(-1);
+  const tts = await fetch(`${BASE}/api/tts`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ref: `feed:${said.id}` }) });
+  ok(tts.ok && tts.headers.get("content-type") === "audio/mpeg" && (await tts.arrayBuffer()).byteLength > 2000, "a line from the game comes back as speech");
+}
 const nope = await fetch(`${BASE}/api/tts`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ref: "feed:nonsense" }) });
 ok(nope.status === 404, "anything else is refused");
 
@@ -402,7 +406,7 @@ for (const id of ids) await admin("adjust", { playerId: id, delta: 2000, note: "
 
 console.log("vote: the most votes drinks, the majority earns");
 let vr = await draft((x) => x.kind === "vote");
-ok(vr.options.length === 8 && vr.seconds === 40 && vr.reward === 100, "a vote has every player as an option");
+ok(vr.options.length === (await pub()).players.length && vr.seconds === 40 && vr.reward === 100, "a vote has every player as an option");
 ok((await admin("openRound", { roundId: vr.id, seconds: 0 })).ok, "a vote opens");
 r = await act("bet", { roundId: vr.id, optionId: "itay", amount: 0 }, { token: tokens.itay });
 ok(!r.ok, `nobody votes for himself (${r.err})`);

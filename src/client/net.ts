@@ -236,6 +236,29 @@ export class Game {
     return data.r as T;
   }
 
+  /** Upload with progress (a video takes a while on the villa's WiFi). */
+  uploadWithProgress(blob: Blob, type: string, onProgress: (done: number) => void): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open("POST", "/api/upload");
+      for (const [k, v] of Object.entries(this.headers({ "content-type": type }))) xhr.setRequestHeader(k, v);
+      xhr.upload.onprogress = (e) => {
+        if (e.lengthComputable) onProgress(e.loaded / e.total);
+      };
+      xhr.onload = () => {
+        try {
+          const d = JSON.parse(xhr.responseText) as { ok: boolean; url?: string; err?: string };
+          if (d.ok && d.url) resolve(d.url);
+          else reject(new Error(d.err || "ההעלאה נכשלה"));
+        } catch {
+          reject(new Error("ההעלאה נכשלה. נסו שוב"));
+        }
+      };
+      xhr.onerror = () => reject(new Error("ההעלאה נכשלה. בדקו את האינטרנט ונסו שוב."));
+      xhr.send(blob);
+    });
+  }
+
   async upload(blob: Blob): Promise<string> {
     let res: Response;
     try {

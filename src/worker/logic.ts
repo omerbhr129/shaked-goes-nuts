@@ -86,6 +86,7 @@ export function normalize(s: GameState): GameState {
     p.hat ??= null;
     p.item ??= null;
   }
+  for (const sh of s.shouts) sh.video ??= null;
   s.tv = Object.assign({ mode: "lobby", at: Date.now(), step: 0 }, s.tv);
   s.settings = Object.assign({ ...DEFAULT_SETTINGS }, s.settings);
   for (const r of s.rounds) {
@@ -978,7 +979,7 @@ const PLAYER: Record<string, Handler> = {
     if (!text) fail("כתבו משהו");
     const last = s.shouts.findLast((x) => x.author === pl.id);
     if (last && c.now - last.at < 4000) fail("רגע, לאט לאט 🙂");
-    pushShout(s, { author: pl.id, anon: !!c.p.anon, text, photo: null }, c.now);
+    pushShout(s, { author: pl.id, anon: !!c.p.anon, text, photo: null, video: null }, c.now);
   },
 
   shoutPhoto(s, c) {
@@ -986,7 +987,16 @@ const PLAYER: Record<string, Handler> = {
     const photo = media(c.p.photo) ?? fail("התמונה לא עלתה. נסו שוב");
     const last = s.shouts.findLast((x) => x.author === pl.id && x.photo);
     if (last && c.now - last.at < 15_000) fail("תמונה אחת כל 15 שניות 🙂");
-    pushShout(s, { author: pl.id, anon: !!c.p.anon, text: str(c.p.text, 60) || null, photo }, c.now);
+    pushShout(s, { author: pl.id, anon: !!c.p.anon, text: str(c.p.text, 60) || null, photo, video: null }, c.now);
+  },
+
+  /** A short video from the phone, played on the TV. */
+  shoutVideo(s, c) {
+    const pl = me(s, c);
+    const video = media(c.p.video) ?? fail("הסרטון לא עלה. נסו שוב");
+    const last = s.shouts.findLast((x) => x.author === pl.id && x.video);
+    if (last && c.now - last.at < 30_000) fail("סרטון אחד כל חצי דקה 🙂");
+    pushShout(s, { author: pl.id, anon: !!c.p.anon, text: str(c.p.text, 60) || null, photo: null, video }, c.now);
   },
 
   setPhoto(s, c) {
