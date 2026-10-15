@@ -22,7 +22,7 @@ export const SHOP: ShopItem[] = [
   { id: "champagne", emoji: "🍾", name: "שמפניה", price: 30, slot: "item" },
   { id: "cocktail", emoji: "🍹", name: "קוקטייל", price: 20, slot: "item" },
   { id: "cigar", emoji: "🚬", name: "סיגריה", price: 20, slot: "item" },
-  { id: "falafel", emoji: "🧆", name: "פלאפל", price: 15, slot: "item" },
+  { id: "joint", emoji: "🌿", name: "ג׳וינט", price: 20, slot: "item" },
   { id: "rose", emoji: "🌹", name: "ורד", price: 20, slot: "item" },
   { id: "bottle", emoji: "🍼", name: "בקבוק תינוק", price: 10, slot: "item" },
   { id: "tp", emoji: "🧻", name: "נייר טואלט", price: 10, slot: "item" },
@@ -32,7 +32,6 @@ export const SHOP: ShopItem[] = [
 export const GAMES: Record<string, { emoji: string; name: string; note: string }> = {
   pingpong: { emoji: "🏓", name: "פינג פונג", note: "משחק קצר עד 4 נקודות." },
   foosball: { emoji: "⚽", name: "כדורגל שולחן", note: "משחק קצר עד 4 גולים." },
-  airhockey: { emoji: "🏒", name: "הוקי אוויר", note: "משחק קצר עד 4 גולים." },
   arm: { emoji: "💪", name: "הורדת ידיים", note: "הטוב משלושה, יד ימין." },
   handstand: { emoji: "🤸", name: "עמידת ידיים", note: "מי מחזיק יותר זמן. מותר להישען על הקיר, אסור ליפול." },
   chug: { emoji: "🍺", name: "צ׳אג בירה", note: "שותים עד הסוף, בלי לשפוך." },
