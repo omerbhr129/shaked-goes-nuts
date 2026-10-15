@@ -137,18 +137,51 @@ export function ShoutsLayer({ shouts, players, feed, bubbles: showBubbles }: { s
 }
 
 /** While a finished mission can still be caught, a clock ticks in the corner. */
-export function CatchClock({ feed, game }: { feed: FeedEvent[]; game: Game }) {
+export function CatchClock({ feed, game, compact }: { feed: FeedEvent[]; game: Game; compact?: boolean }) {
   const now = useServerNow(game, true, 500);
   const closed = new Set(feed.filter((e) => e.kind === "reveal" || e.kind === "caught").map((e) => e.data?.mission ?? e.ref));
   const live = feed.filter((e) => e.kind === "mission" && e.data?.until && e.data.until > now && !closed.has(e.ref)).sort((a, b) => a.data!.until! - b.data!.until!);
-  if (!live.length) return null;
+  const first = live[0];
+  const left = first ? first.data!.until! - now : 0;
+  const pct = first ? Math.max(0, Math.min(100, (left / Math.max(1, first.data!.until! - first.at)) * 100)) : 0;
+  // stays up for the whole catch window, so nobody forgets there is someone to catch
   return (
-    <motion.div className="catch-clock" initial={{ y: -80 }} animate={{ y: 0 }}>
-      <span aria-hidden="true">🕵️</span>
-      <span>{live.length > 1 ? `${live.length} משימות באוויר` : "משימה באוויר"}</span>
-      <b className="num">{mmss(live[0].data!.until! - now)}</b>
-      <small>תפסו אותו בטלפון!</small>
-    </motion.div>
+    <AnimatePresence>
+      {first && (
+        <motion.div
+          key="catch"
+          className={cls("catch-clock", compact && "compact", left < 15_000 && "hurry")}
+          initial={compact ? { y: 200 } : { x: -520 }}
+          animate={compact ? { y: 0 } : { x: 0 }}
+          exit={compact ? { y: 200 } : { x: -520 }}
+          transition={{ type: "spring", stiffness: 180, damping: 22 }}
+        >
+          <div className="cc-head">
+            <span className="cc-siren" aria-hidden="true">
+              🚨
+            </span>
+            {live.length > 1 ? `${live.length} משימות סודיות באוויר!` : "משימה סודית באוויר!"}
+          </div>
+          <b className="cc-time num">{mmss(left)}</b>
+          {compact ? (
+            <p className="cc-hint">
+              <b>תפסו אותו בטלפון!</b>
+            </p>
+          ) : (
+            <>
+              <div className="cc-bar" aria-hidden="true">
+                <i style={{ width: `${pct}%` }} />
+              </div>
+              <p className="cc-hint">
+                מישהו פה עשה משהו. חושדים במישהו?
+                <br />
+                <b>בטלפון: משימות ← 🕵️ תפסתי מישהו!</b>
+              </p>
+            </>
+          )}
+        </motion.div>
+      )}
+    </AnimatePresence>
   );
 }
 

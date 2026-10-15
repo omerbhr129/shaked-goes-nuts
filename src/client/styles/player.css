@@ -1628,6 +1628,11 @@
 }
 
 .envelope.st-pending .env-hint {
-  color: var(--gold-hi);
+  color: var(--wax);
   font-weight: 800;
+}
+
+/* the letter is white paper: gold text disappears on it */
+.env-paper .link-btn {
+  color: var(--wax);
 }

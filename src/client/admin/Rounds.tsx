@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { Bet, ClientView, PlayerPub, RoundKind, RoundOption, RoundPub, RoundRec, RoundStatus } from "../../shared/types";
 import { GAMES } from "../../shared/catalog";
 import { LETTERS, cls, fmt, fmtX, mmss, multiplier, potOf, resizeImage } from "../lib";
@@ -143,28 +143,49 @@ export function RoundsTab({ game, view, run }: { game: Game; view: ClientView; r
   );
 }
 
-/** גלגל הבלגן: challenges, questions and surprises on one wheel. Waits while the TV still shows the last result. */
+/** How long the TV plays a result for: the same steps as tv/Screens.tsx. */
+function resultMs(r: RoundPub) {
+  const L = r.lines ?? {};
+  if (r.kind === "quiz") return 1500 + 2700 + (L.fast ? 6500 : 0) + (L.slow ? 7000 : r.losers.length ? 9500 : 0);
+  return 1750 + 3200 + (L.duel ? 7000 : 0) + (L.win ? 6500 : 0) + (L.lose ? 8500 : 0);
+}
+
+/** גלגל הבלגן: challenges, questions and surprises on one wheel. Never locked: while the TV still plays the last result, a tap queues the spin. */
 function DrawBar({ game, view, run, left }: { game: Game; view: ClientView; run: Run; left: (k: RoundKind) => number }) {
   const r = view.pub.round;
   const draw = view.pub.draw;
-  const now = useServerNow(game, true, 1000);
-  const busyUntil = Math.max(r?.status === "resolved" && r.resolvedAt ? r.resolvedAt + 24_000 : 0, draw ? draw.at + 17_000 : 0);
+  const now = useServerNow(game, true, 500);
+  const busyUntil = Math.max(r?.status === "resolved" && r.resolvedAt ? r.resolvedAt + resultMs(r) : 0, draw?.surprise ? draw.at + 17_000 : 0);
   const wait = Math.ceil((busyUntil - now) / 1000);
+  const [queued, setQueued] = useState<string | null>(null);
   const spin = async (kind: string) => {
     const res = (await run("drawRound", { kind })) as { title?: string } | undefined;
     if (res?.title) toast(`🎡 יצא: ${res.title}`, "ok", 4000);
   };
+  useEffect(() => {
+    if (!queued || wait > 0) return;
+    setQueued(null);
+    void spin(queued);
+  }, [queued, wait]); // eslint-disable-line react-hooks/exhaustive-deps
+  const press = (kind: string) => (wait > 0 ? setQueued(kind) : void spin(kind));
   return (
     <div className="draw-bar felt">
       <p>אתם מחליטים מתי, הגלגל מחליט מה. אתגרים, שאלות והפתעות, מול כולם בטלוויזיה.</p>
-      <button type="button" className="btn btn-gold btn-xl" disabled={wait > 0} onClick={() => spin("any")}>
-        {wait > 0 ? `⏳ הטלוויזיה עוד באמצע (${wait})` : "🎡 לסובב את גלגל הבלגן"}
-      </button>
+      {queued ? (
+        <button type="button" className="btn btn-gold btn-xl" onClick={() => setQueued(null)}>
+          ⏳ הגלגל יסתובב לבד בעוד {Math.max(wait, 0)} (הקישו לביטול)
+        </button>
+      ) : (
+        <button type="button" className="btn btn-gold btn-xl" onClick={() => press("any")}>
+          🎡 לסובב את גלגל הבלגן
+        </button>
+      )}
+      {!queued && wait > 0 && <small className="muted">הטלוויזיה מסיימת את התוצאה ({wait}). אפשר ללחוץ, הגלגל יחכה לה</small>}
       <div className="row-actions">
-        <button type="button" className="btn btn-ghost btn-s" disabled={wait > 0 || !left("challenge")} onClick={() => spin("challenge")}>
+        <button type="button" className="btn btn-ghost btn-s" disabled={!!queued || !left("challenge")} onClick={() => press("challenge")}>
           רק אתגר <small>({left("challenge")})</small>
         </button>
-        <button type="button" className="btn btn-ghost btn-s" disabled={wait > 0 || !left("quiz")} onClick={() => spin("quiz")}>
+        <button type="button" className="btn btn-ghost btn-s" disabled={!!queued || !left("quiz")} onClick={() => press("quiz")}>
           רק שאלה <small>({left("quiz")})</small>
         </button>
       </div>

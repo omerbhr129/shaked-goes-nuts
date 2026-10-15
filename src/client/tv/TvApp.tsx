@@ -97,7 +97,7 @@ export function TvApp() {
           {chat && <ChatLog view={view} game={game} />}
           <ShoutsLayer shouts={view.pub.shouts} players={view.pub.players} feed={view.pub.feed} bubbles={!chat} />
           <FxLayer game={game} />
-          <CatchClock feed={view.pub.feed} game={game} />
+          <CatchClock feed={view.pub.feed} game={game} compact={!chat} />
           <MusicDirector view={view} game={game} armed={armed} />
           <NewsBanner feed={view.pub.feed} players={view.pub.players} skipShots={mode === "round"} offset={game.offset} />
           <WheelOverlay wheel={view.pub.wheel} players={view.pub.players} offset={game.offset} feed={view.pub.feed} />

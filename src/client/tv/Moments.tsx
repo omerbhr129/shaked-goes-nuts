@@ -268,10 +268,23 @@ interface Pop {
   slot: number;
 }
 
+// a frame must never pop up empty while its picture is still on the way: only pictures that already loaded get picked
+const loaded = new Set<string>();
+function preloadPops() {
+  for (const src of POPS) {
+    if (loaded.has(src)) continue;
+    const img = new Image();
+    img.onload = () => loaded.add(src);
+    img.src = src;
+  }
+}
+
 export function BettingVibes({ active, avoidLeft }: { active: boolean; avoidLeft?: boolean }) {
   const [pops, setPops] = useState<Pop[]>([]);
   const n = useRef(0);
   const last = useRef(-1);
+
+  useEffect(preloadPops, []);
 
   useEffect(() => {
     if (!active) {
@@ -279,16 +292,19 @@ export function BettingVibes({ active, avoidLeft }: { active: boolean; avoidLeft
       return;
     }
     const add = () => {
-      let pick = Math.floor(Math.random() * POPS.length);
-      if (pick === last.current) pick = (pick + 1) % POPS.length;
-      last.current = pick;
+      const ready = POPS.filter((src) => loaded.has(src));
+      if (!ready.length) return;
+      let pick = Math.floor(Math.random() * ready.length);
+      if (ready.length > 1 && ready[pick] === POPS[last.current]) pick = (pick + 1) % ready.length;
+      const src = ready[pick];
+      last.current = POPS.indexOf(src);
       setPops((cur) => {
         const used = new Set(cur.map((p) => p.slot));
         const free = SLOTS.map((_, i) => i).filter((i) => !used.has(i) && !(avoidLeft && SLOTS[i].x < 500));
         if (!free.length) return cur;
         const id = ++n.current;
         window.setTimeout(() => setPops((c) => c.filter((p) => p.id !== id)), 2600);
-        return [...cur, { id, src: POPS[pick], slot: free[Math.floor(Math.random() * free.length)] }];
+        return [...cur, { id, src, slot: free[Math.floor(Math.random() * free.length)] }];
       });
       sfx.pop();
     };
