@@ -6,7 +6,7 @@ import { RULES } from "../../shared/catalog";
 import { LETTERS, cls, fmt, fmtX, kingAndLast, mmss, multiplier, photoOf, potOf, ranked, signed } from "../lib";
 import { type Game, useServerNow } from "../net";
 import { QR } from "../qr";
-import { prefetchLine, sfx, speak } from "../sound";
+import { hush, prefetchLine, sfx, speak } from "../sound";
 import { Avatar, Change, Coin, FunnyFace, Led, Marquee, Money, Podium, Spark, burst } from "../ui";
 import { Spotlight, holdTv, loseKind, tvBusy } from "./Moments";
 
@@ -940,14 +940,48 @@ export function PhotoScreen({ view, game }: { view: ClientView; game: Game }) {
 /* ---------------- how to play: slides the host clicks through ---------------- */
 
 export function RulesScreen({ view }: { view: ClientView }) {
-  const step = Math.max(0, Math.min(view.pub.tv.step, RULES.length - 1));
+  const last = RULES.length - 1;
+  const fromHost = Math.max(0, Math.min(view.pub.tv.step, last));
+  const [step, setStep] = useState(fromHost);
   const rule = RULES[step];
+  const next = () => setStep((s) => Math.min(s + 1, last));
+  const back = () => setStep((s) => Math.max(s - 1, 0));
+  // the host's buttons still drive it
+  useEffect(() => setStep(fromHost), [fromHost]);
+  // each slide is read out, and the next one comes by itself once the line is over
   useEffect(() => {
+    hush();
     sfx.whoosh();
-    speak(`rules:${step}`);
-  }, [step]);
+    let alive = true;
+    let t = 0;
+    const shownAt = Date.now();
+    void speak(`rules:${step}`).then(() => {
+      if (!alive || step >= last) return;
+      t = window.setTimeout(next, Math.max(1500, 8000 - (Date.now() - shownAt)));
+    });
+    return () => {
+      alive = false;
+      window.clearTimeout(t);
+    };
+  }, [step]); // eslint-disable-line react-hooks/exhaustive-deps
+  // and on the Mac itself: the arrows, space, or a click anywhere
+  useEffect(() => {
+    const key = (e: KeyboardEvent) => {
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      if (["ArrowLeft", " ", "Enter", "PageDown", "ArrowDown"].includes(e.key)) {
+        e.preventDefault();
+        next();
+      } else if (["ArrowRight", "PageUp", "ArrowUp", "Backspace"].includes(e.key)) {
+        e.preventDefault();
+        back();
+      }
+    };
+    window.addEventListener("keydown", key);
+    return () => window.removeEventListener("keydown", key);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => () => hush(), []);
   return (
-    <div className="tvrules">
+    <div className="tvrules" onClick={next}>
       <Marquee size="s" />
       <AnimatePresence mode="wait">
         <motion.div
@@ -970,6 +1004,7 @@ export function RulesScreen({ view }: { view: ClientView }) {
           <i key={i} className={cls(i === step && "on", i < step && "done")} />
         ))}
       </div>
+      <p className="rule-hint">{step < last ? "השקפים מתקדמים לבד · אפשר גם ללחוץ על המסך או על החצים במקלדת" : "◀ ▶ אפשר לחזור אחורה בחצים"}</p>
     </div>
   );
 }

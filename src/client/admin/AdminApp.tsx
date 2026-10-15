@@ -77,6 +77,9 @@ export function AdminApp() {
               {online} מתוך {view.pub.players.length} מחוברים
             </span>
           </div>
+          <button type="button" className="icon-btn play-link" onClick={() => location.assign("/")} aria-label="המשחק שלי" title="המשחק שלי">
+            🎮
+          </button>
           <MuteButton />
         </header>
         <nav className="admin-tabs" aria-label="ניהול">

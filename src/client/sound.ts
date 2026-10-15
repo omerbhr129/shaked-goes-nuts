@@ -422,23 +422,40 @@ export function prefetchLine(ref: string) {
 }
 
 let speaking: Promise<void> = Promise.resolve();
+let generation = 0;
+let current: AudioBufferSourceNode | null = null;
 
-/** Say a line out loud; lines queue up instead of talking over each other. */
-export function speak(ref: string) {
-  if (muted || silent) return;
+/** Stop the line being read now and drop the ones waiting (the slide it belonged to is gone). */
+export function hush() {
+  generation++;
+  try {
+    current?.stop();
+  } catch {
+    /* already over */
+  }
+  current = null;
+}
+
+/** Say a line out loud; lines queue up instead of talking over each other. Resolves when it has been said. */
+export function speak(ref: string): Promise<void> {
+  if (muted || silent) return Promise.resolve();
   const data = loadLine(ref);
+  const mine = generation;
   speaking = speaking.then(async () => {
+    if (mine !== generation) return;
     const buf = await data;
     voices.delete(ref);
     unlockAudio();
-    if (!buf || muted || !ctx || !master) return;
+    if (!buf || muted || !ctx || !master || mine !== generation) return;
     let audio: AudioBuffer;
     try {
       audio = await ctx.decodeAudioData(buf.slice(0));
     } catch {
       return;
     }
+    if (mine !== generation) return;
     const src = ctx.createBufferSource();
+    current = src;
     src.buffer = audio;
     src.connect(master);
     duck(true);
@@ -450,6 +467,8 @@ export function speak(ref: string) {
       };
       src.start();
     });
+    if (current === src) current = null;
     duck(false);
   });
+  return speaking;
 }

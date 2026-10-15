@@ -3045,6 +3045,16 @@ html.is-tv body {
   color: var(--almond);
 }
 
+.tvrules {
+  cursor: pointer;
+}
+
+.rule-hint {
+  margin: 14px 0 0;
+  font-size: 22px;
+  color: var(--almond-dim);
+}
+
 .rule-dots {
   display: flex;
   gap: 16px;

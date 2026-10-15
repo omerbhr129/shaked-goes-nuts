@@ -84,6 +84,10 @@ html:has(.phone) {
   border-top: 1px solid var(--line);
 }
 
+.tabbar.five {
+  grid-template-columns: repeat(5, 1fr);
+}
+
 .tab {
   display: grid;
   justify-items: center;

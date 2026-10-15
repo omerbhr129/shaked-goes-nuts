@@ -104,11 +104,13 @@ export function PlayerApp() {
           </main>
           <div className="dock">
             <NowBar game={game} view={view} me={me} go={go} />
-            <nav className="tabbar" aria-label="מסכים">
+            <nav className={cls("tabbar", creds.key && "five")} aria-label="מסכים">
               <TabButton on={tab === "bet"} onClick={() => setTab("bet")} icon="📈" label="הבורסה" dot={needsBet} />
               <TabButton on={tab === "missions"} onClick={() => setTab("missions")} icon="🤫" label="משימות" count={openMissions} />
               <TabButton on={tab === "board"} onClick={() => setTab("board")} icon="🏆" label="דירוג" />
               <TabButton on={tab === "fun"} onClick={() => setTab("fun")} icon="📣" label="למסך" />
+              {/* the host plays from the same phone: one tap to the host screen and back */}
+              {creds.key && <TabButton on={false} onClick={() => location.assign("/admin")} icon="🎛️" label="מנחה" />}
             </nav>
           </div>
         </>

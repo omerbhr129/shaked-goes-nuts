@@ -1094,6 +1094,11 @@
   background: var(--wax);
 }
 
+.play-link {
+  flex: none;
+  white-space: nowrap;
+}
+
 .crown-btn {
   width: 100%;
 }
