@@ -155,7 +155,7 @@ function Odds({ value }: { value: number | null }) {
 
 export function RoundScreen({ view, game }: { view: ClientView; game: Game }) {
   const r = view.pub.round!;
-  const now = useServerNow(game, r.status === "open", 200);
+  const now = useServerNow(game, r.status === "open", 1000);
   const open = r.status === "open" && (r.closesAt === null || now < r.closesAt);
   const people = useMemo(() => byId(view.pub.players), [view.pub.players]);
 
@@ -272,7 +272,7 @@ export function RoundScreen({ view, game }: { view: ClientView; game: Game }) {
           const lose = showResult && r.winnerId !== o.id;
           const backers = (r.bets ?? []).filter((b) => b.optionId === o.id);
           return (
-            <motion.div key={o.id} layout className={cls("tvopt", win && "win", lose && "lose", p && "has-photo")}>
+            <motion.div key={o.id} className={cls("tvopt", win && "win", lose && "lose", p && "has-photo")}>
               {p ? (
                 <div className="tvopt-person">
                   <Avatar p={p} size={many ? 110 : 160} />
@@ -441,7 +441,7 @@ function Results({ r, people }: { r: RoundPub; people: Record<string, PlayerPub>
 
 export function QuizScreen({ view, game }: { view: ClientView; game: Game }) {
   const r = view.pub.round!;
-  const now = useServerNow(game, r.status === "open", 200);
+  const now = useServerNow(game, r.status === "open", 1000);
   const open = r.status === "open" && (r.closesAt === null || now < r.closesAt);
   const people = useMemo(() => byId(view.pub.players), [view.pub.players]);
   const resolvedKey = r.status === "resolved" ? `${r.id}:${r.resolvedAt}` : null;
@@ -534,7 +534,7 @@ export function QuizScreen({ view, game }: { view: ClientView; game: Game }) {
           const wrong = reveal && r.winnerId !== o.id;
           const who = (r.bets ?? []).filter((b) => b.optionId === o.id);
           return (
-            <motion.div key={o.id} layout className={cls("qopt", right && "right", wrong && "wrong")}>
+            <motion.div key={o.id} className={cls("qopt", right && "right", wrong && "wrong")}>
               <span className="qopt-letter">{LETTERS[i]}</span>
               {p && <Avatar p={p} size={r.options.length > 4 ? 64 : 84} />}
               <span className="qopt-label">{o.label}</span>
@@ -647,7 +647,7 @@ function MultBadge({ r }: { r: RoundPub }) {
 
 export function VoteScreen({ view, game }: { view: ClientView; game: Game }) {
   const r = view.pub.round!;
-  const now = useServerNow(game, r.status === "open", 200);
+  const now = useServerNow(game, r.status === "open", 1000);
   const open = r.status === "open" && (r.closesAt === null || now < r.closesAt);
   const people = useMemo(() => byId(view.pub.players), [view.pub.players]);
   const resolvedKey = r.status === "resolved" ? `${r.id}:${r.resolvedAt}` : null;
@@ -726,7 +726,7 @@ export function VoteScreen({ view, game }: { view: ClientView; game: Game }) {
           const who = votes.filter((b) => b.optionId === o.id);
           const isChosen = counted && !!o.playerId && r.losers.includes(o.playerId) && !r.refunded;
           return (
-            <motion.div key={o.id} layout className={cls("vote-tile", isChosen && "chosen", counted && !isChosen && "dim")}>
+            <motion.div key={o.id} className={cls("vote-tile", isChosen && "chosen", counted && !isChosen && "dim")}>
               {p && <Avatar p={p} size={r.options.length > 8 ? 96 : 118} />}
               <span className="vote-tile-name">{o.label}</span>
               {counted && (
@@ -804,7 +804,7 @@ export function VoteScreen({ view, game }: { view: ClientView; game: Game }) {
 
 export function PhotoScreen({ view, game }: { view: ClientView; game: Game }) {
   const r = view.pub.round!;
-  const now = useServerNow(game, r.status === "open", 250);
+  const now = useServerNow(game, r.status === "open", 1000);
   const collecting = r.status === "open" && r.phase === "collect";
   const voting = r.status === "open" && r.phase === "vote" && (r.closesAt === null || now < r.closesAt);
   const people = useMemo(() => byId(view.pub.players), [view.pub.players]);
@@ -874,7 +874,6 @@ export function PhotoScreen({ view, game }: { view: ClientView; game: Game }) {
           return (
             <motion.figure
               key={o.id}
-              layout
               className={cls("photo-card", won && "won", counted && !won && "dim")}
               initial={{ scale: 0, rotate: -12 }}
               animate={{ scale: 1, rotate: i % 2 ? 2.5 : -2.5 }}

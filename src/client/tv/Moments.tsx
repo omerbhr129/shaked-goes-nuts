@@ -1,5 +1,5 @@
 import { AnimatePresence, motion } from "motion/react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import type { DrawState, FeedEvent, PlayerPub } from "../../shared/types";
 import { cls, photoOf } from "../lib";
 import { prefetchLine, sfx, speak } from "../sound";
@@ -117,6 +117,26 @@ export function Spotlight({
 
 /* ---------- גלגל הבלגן: the host spins, the wheel lands on a challenge, a question or a surprise ---------- */
 
+/** A spin the browser runs on its own (a CSS transition on transform): a busy page can't make it stutter.
+ *  Mount it fresh for every spin. */
+export function Spinner({ target, ms, ease, className, children }: { target: number; ms: number; ease: string; className: string; children: ReactNode }) {
+  const [go, setGo] = useState(false);
+  useEffect(() => {
+    let b = 0;
+    // two frames: the wheel is painted at 0 first, then the transition starts from there
+    const a = requestAnimationFrame(() => (b = requestAnimationFrame(() => setGo(true))));
+    return () => {
+      cancelAnimationFrame(a);
+      cancelAnimationFrame(b);
+    };
+  }, []);
+  return (
+    <div className={className} style={{ transform: `rotate(${go ? target : 0}deg)`, transition: go ? `transform ${ms}ms ${ease}` : "none" }}>
+      {children}
+    </div>
+  );
+}
+
 export const DRAW_MS = 8000;
 const SPIN = 6200;
 const SURPRISE_MS = 9000;
@@ -199,13 +219,9 @@ export function BigWheel({ draw, players, feed }: { draw: DrawState; players: Pl
         🎡 גלגל הבלגן
       </motion.div>
       <div className="bw-stage">
-        <div className="bw-pointer" aria-hidden="true" />
-        <motion.svg className="bw-wheel" viewBox="-112 -112 224 224" initial={{ rotate: 0 }} animate={{ rotate: target }} transition={{ duration: SPIN / 1000, ease: [0.12, 0.72, 0.14, 1] }}>
-          <defs>
-            <clipPath id="bw-hub">
-              <circle r="24" />
-            </clipPath>
-          </defs>
+        <div className="bw-shadow" aria-hidden="true" />
+        <Spinner className="bw-spin" target={target} ms={SPIN} ease="cubic-bezier(0.12, 0.72, 0.14, 1)">
+        <svg className="bw-wheel" viewBox="-112 -112 224 224">
           <circle r="110" fill="#4A2A12" stroke="#C9922F" strokeWidth="3" />
           {draw.titles.map((t, i) => {
             const surprise = draw.kinds?.[i] === "s";
@@ -225,13 +241,23 @@ export function BigWheel({ draw, players, feed }: { draw: DrawState; players: Pl
               </g>
             );
           })}
+        </svg>
+        </Spinner>
+        {/* the frame stays put: blinking bulbs and Itay in the middle (a blink must not repaint the turning slices) */}
+        <svg className="bw-frame" viewBox="-112 -112 224 224" aria-hidden="true">
+          <defs>
+            <clipPath id="bw-hub">
+              <circle r="24" />
+            </clipPath>
+          </defs>
           {Array.from({ length: 28 }, (_, i) => {
             const a = (i * 360) / 28;
             return <circle key={i} className={cls("bw-bulb", i % 2 === 1 && "odd")} cx={Math.sin((a * Math.PI) / 180) * 105} cy={-Math.cos((a * Math.PI) / 180) * 105} r="2.6" />;
           })}
           <circle r="27" fill="#E9B949" stroke="#4A2A12" strokeWidth="2" />
           <image href="/photos/itay-face.jpg" x="-24" y="-24" width="48" height="48" clipPath="url(#bw-hub)" preserveAspectRatio="xMidYMid slice" />
-        </motion.svg>
+        </svg>
+        <div className="bw-pointer" aria-hidden="true" />
       </div>
       <AnimatePresence>
         {phase !== "spin" && (

@@ -8,7 +8,7 @@ import { prefetchLine, setMuted, sfx, silence, speak, unlockAudio } from "../sou
 import { Avatar, Marquee, Ticker, burst } from "../ui";
 import { CatchClock, ChatLog, FxLayer, MusicDirector, MysterySpot, ShoutsLayer, SoundFx } from "./Live";
 import { IdleShow } from "./Idle";
-import { BettingVibes, BigWheel, Spotlight, holdTv, spinLength, tvBusy } from "./Moments";
+import { BettingVibes, BigWheel, Spinner, Spotlight, holdTv, spinLength, tvBusy } from "./Moments";
 import { AwardsScreen, BoardScreen, Lobby, NightScreen, PhotoScreen, QuizScreen, RevealScreen, RoundScreen, RulesScreen, VoteScreen, WinnerScreen } from "./Screens";
 
 // the host screen embeds a silent copy of the TV as a preview
@@ -79,10 +79,10 @@ export function TvApp() {
             <motion.div
               key={sceneKey}
               className="tv-scene"
-              initial={{ opacity: 0, scale: 0.985 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 1.01 }}
-              transition={{ duration: 0.45 }}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.4 }}
             >
               {mode === "lobby" && <Lobby view={view} />}
               {mode === "round" &&
@@ -205,7 +205,7 @@ function RoundExtras({ view, game, avoidLeft }: { view: ClientView; game: Game; 
   const draw = view.pub.draw;
   const live = !!r && r.status === "open";
   const spinning = !!draw && Date.now() + game.offset < draw.at + spinLength(draw);
-  const now = useServerNow(game, live || spinning, 250);
+  const now = useServerNow(game, live || spinning, 500);
   const drawing = !!draw && now < draw.at + spinLength(draw);
   const betting = live && !drawing && view.pub.tv.mode === "round" && (r!.closesAt === null || now < r!.closesAt);
   return (
@@ -427,8 +427,9 @@ function WheelOverlay({ wheel, players, offset, feed }: { wheel: WheelSpin | nul
     <motion.div key={wheel.id} className="wheel-overlay" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
       <div className="wheel-title">{wheel.kind === "punish" ? "🍋 גלגל העונשים" : "🎡 גלגל השתייה"}</div>
       <div className="wheel-wrap">
-        <div className="wheel-pointer" aria-hidden="true" />
-        <motion.svg className="wheel" viewBox="-104 -104 208 208" initial={{ rotate: 0 }} animate={{ rotate: target }} transition={{ duration: 5.2, ease: [0.1, 0.75, 0.15, 1] }}>
+        <div className="wheel-shadow" aria-hidden="true" />
+        <Spinner className="wheel-spin" target={target} ms={5200} ease="cubic-bezier(0.1, 0.75, 0.15, 1)">
+        <svg className="wheel" viewBox="-104 -104 208 208">
           <circle r="103" fill="#4A2A12" stroke="#C9922F" strokeWidth="3" />
           {wheel.segments.map((label, i) => {
             const [bg, fg] = WHEEL_COLORS[i % WHEEL_COLORS.length];
@@ -450,7 +451,9 @@ function WheelOverlay({ wheel, players, offset, feed }: { wheel: WheelSpin | nul
           <text y="1" fontSize="13" textAnchor="middle" dominantBaseline="middle">
             🥜
           </text>
-        </motion.svg>
+        </svg>
+        </Spinner>
+        <div className="wheel-pointer" aria-hidden="true" />
       </div>
       <AnimatePresence>
         {phase === "done" && (
