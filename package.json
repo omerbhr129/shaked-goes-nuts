@@ -8,7 +8,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "deploy": "vite build && wrangler deploy",
-    "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.worker.json"
+    "typecheck": "wrangler types && tsc -p tsconfig.json && tsc -p tsconfig.worker.json"
   },
   "dependencies": {
     "canvas-confetti": "^1.9.4",
