@@ -126,6 +126,7 @@ export class GameRoom extends DurableObject<Env> {
       if (path === "/api/upload" && req.method === "POST") return await this.upload(req);
       if (path === "/api/tts" && req.method === "POST") return await this.tts(req);
       if (path.startsWith("/media/")) return await this.media(path.slice("/media/".length), req);
+      if (path === "/api/export") return this.isAdmin(req.headers.get("x-key")) ? await this.exportList() : json({ ok: false, err: "אין הרשאה" }, 403);
     } catch (e) {
       console.error("request failed", path, e);
       return json({ ok: false, err: "שגיאה בשרת. נסו שוב." }, 500);
@@ -290,6 +291,24 @@ export class GameRoom extends DurableObject<Env> {
     return new Response(blob.body, {
       headers: { "content-type": blob.type, "cache-control": cache, ...(meta.size ? { "accept-ranges": "bytes" } : {}) },
     });
+  }
+
+  /** Every uploaded file (photos, videos), for the host to keep after the party (scripts/export.mjs). */
+  private async exportList() {
+    const items: { id: string; type: string; size: number | null }[] = [];
+    let startAfter: string | undefined;
+    for (;;) {
+      const page = await this.ctx.storage.list<unknown>({ prefix: "img:", limit: 1, ...(startAfter ? { startAfter } : {}) });
+      const [entry] = page;
+      if (!entry) break;
+      const [k, v] = entry;
+      const id = /^img:([a-z0-9]+)/.exec(k)?.[1];
+      if (!id) break;
+      // a file's chunks ("img:<id>:<n>") sort right after it and ";" right after ":", so this jumps past them without reading any
+      startAfter = `img:${id};`;
+      if (k === `img:${id}` && v && typeof v === "object" && "type" in v) items.push({ id, type: String((v as { type: string }).type), size: (v as { size?: number }).size ?? null });
+    }
+    return json({ ok: true, items });
   }
 
   private async writeBlob(key: string, type: string, buf: ArrayBuffer) {
