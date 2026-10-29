@@ -336,12 +336,14 @@ export class GameRoom extends DurableObject<Env> {
     const body = (await req.json().catch(() => ({}))) as { ref?: unknown };
     const text = typeof body.ref === "string" ? this.lineFor(body.ref) : null;
     const clean = (text ?? "").replace(/[\p{Extended_Pictographic}\u200d\ufe0f]/gu, "").replace(/[()+]/g, " ").replace(/\s+/g, " ").trim();
-    if (!clean || !this.env.OPENAI_API_KEY) return json({ ok: false, err: "no line" }, 404);
+    if (!clean) return json({ ok: false, err: "no line" }, 404);
     const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(clean)));
     const key = `tts:${[...digest.slice(0, 12)].map((b) => b.toString(16).padStart(2, "0")).join("")}`;
     const headers = { "content-type": "audio/mpeg", "cache-control": "public, max-age=86400" };
     const cached = await this.readBlob(key);
     if (cached) return new Response(cached.body, { headers });
+    // lines already made keep playing; without a key, new ones are simply not spoken
+    if (!this.env.OPENAI_API_KEY) return json({ ok: false, err: "no voice" }, 404);
     const res = await fetch("https://api.openai.com/v1/audio/speech", {
       method: "POST",
       headers: { authorization: `Bearer ${this.env.OPENAI_API_KEY}`, "content-type": "application/json" },

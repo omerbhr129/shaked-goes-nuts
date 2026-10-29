@@ -1,0 +1,6 @@
+# Copy this file to .dev.vars for local development (.dev.vars is never committed).
+# The host code: open /admin#key=<this value> to run the game.
+ADMIN_KEY=change-me
+
+# Optional: the TV announcer's voice (your own OpenAI key; without it the game runs silent).
+# OPENAI_API_KEY=
