@@ -72,6 +72,8 @@ const summary = [
   ...shouts.map((s) => `${clock(s.at)}  ${who(s)}: ${s.video ? "[סרטון] " : s.photo ? "[תמונה] " : ""}${s.text ?? ""}`),
 ];
 writeFileSync(join(DIR, "סיכום הערב.txt"), summary.join("\n") + "\n");
-writeFileSync(join(DIR, "גיבוי נתוני המשחק.json"), JSON.stringify(view, null, 1));
+// the backup too: whoever sent an anonymous message stays unknown
+const backup = { ...view, admin: { ...admin, shouts: admin.shouts.map((s) => (s.anon ? { ...s, author: null } : s)) } };
+writeFileSync(join(DIR, "גיבוי נתוני המשחק.json"), JSON.stringify(backup, null, 1));
 
 console.log(`saved ${saved} of ${items.length} files to ${DIR}${skipped.length ? `, skipped ${skipped.length} test leftovers` : ""}`);
